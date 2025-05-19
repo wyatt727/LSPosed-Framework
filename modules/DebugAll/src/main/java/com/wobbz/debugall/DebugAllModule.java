@@ -18,10 +18,11 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
+import com.github.libxposed.api.XC_MethodHook;
+import com.github.libxposed.api.XposedBridge;
+import com.github.libxposed.api.XposedHelpers;
+import com.github.libxposed.api.callbacks.XC_LoadPackage.LoadPackageParam;
+import com.github.libxposed.api.callbacks.IXposedHookZygoteInit.StartupParam;
 
 /**
  * Module to force debug flags on apps based on user configuration.
@@ -185,7 +186,7 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
                 int.class,
                 new XC_MethodHook() {
                     @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    protected void afterHookedMethod(Param param) throws Throwable {
                         ApplicationInfo appInfo = (ApplicationInfo) param.getResult();
                         if (appInfo != null) {
                             // Apply debug flags based on debug level

@@ -2,6 +2,7 @@ apply plugin: 'com.android.library'
 
 android {
   compileSdkVersion rootProject.ext.compileSdk
+  namespace 'com.wobbz.debugall'
   
   defaultConfig {
     minSdkVersion rootProject.ext.minSdk
@@ -19,8 +20,10 @@ dependencies {
   compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
 }
 
-// Enable hot-reload for this module
+// Enable hot-reload for this module (TODO: Fix the lsposed plugin)
+/*
 lsposed {
   enableHotReload = true
   devServerPort = 8081
-} 
+}
+*/ 

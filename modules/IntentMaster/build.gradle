@@ -2,20 +2,21 @@ apply plugin: 'com.android.library'
 
 android {
     namespace 'com.wobbz.intentmaster'
-    compileSdkVersion rootProject.ext.compileSdkVersion
+    compileSdkVersion rootProject.ext.compileSdk
     
     defaultConfig {
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion rootProject.ext.minSdk
+        targetSdkVersion rootProject.ext.targetSdk
     }
     
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility rootProject.ext.javaVersion
+        targetCompatibility rootProject.ext.javaVersion
     }
 }
 
 dependencies {
     implementation project(':framework')
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
 } 

@@ -1,0 +1,31 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdk
+    namespace 'com.wobbz.test'
+    
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdk
+        targetSdkVersion rootProject.ext.targetSdk
+        
+        compileOptions {
+            sourceCompatibility rootProject.ext.javaVersion
+            targetCompatibility rootProject.ext.javaVersion
+        }
+    }
+    
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    // Modern Xposed API v0.4.2
+    implementation "com.github.libxposed:api:0.4.2"
+    
+    // Other dependencies
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+} 

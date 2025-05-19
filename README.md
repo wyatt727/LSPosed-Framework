@@ -352,6 +352,56 @@ public class NewFeatureModule implements IModulePlugin {
 3. Run `./gradlew assembleRelease`
 4. Install via LSPosed Manager
 
+#### Handling `libxposed:api` Dependency (Important)
+
+The project relies on the `libxposed:api` (specifically `io.github.libxposed:api`) for Xposed functionalities. As of `0.9.2` (tag `100`), this dependency may fail to resolve correctly from JitPack due to issues with JitPack's build environment (often using an older JDK like Java 8) conflicting with the Android Gradle Plugin version used by `libxposed:api` which requires a newer JDK (e.g., Java 11+).
+
+To resolve this, you'll need to build the `libxposed:api` AAR (Android Archive) file locally and include it directly in the modules that require it (e.g., the `framework` module and potentially other modules like `PermissionOverride`).
+
+**Steps:**
+
+1.  **Clone the `libxposed/api` repository:**
+    ```bash
+    git clone https://github.com/libxposed/api.git libxposed-api
+    cd libxposed-api
+    ```
+
+2.  **Configure Android SDK for the cloned repository:**
+    Ensure you have an Android SDK installed and its path is known. Create or update a `local.properties` file in the root of the cloned `libxposed-api` directory:
+    ```properties
+    sdk.dir=/path/to/your/android/sdk
+    ```
+    (Replace `/path/to/your/android/sdk` with the actual path, e.g., `~/Library/Android/sdk` on macOS or the path pointed to by `$ANDROID_HOME`).
+
+3.  **Build the AAR:**
+    From the root of the `libxposed-api` directory, run the following command:
+    ```bash
+    ./gradlew :api:assembleRelease
+    ```
+    If you encounter issues with the `:checks:compileKotlin` task (e.g., due to JVM target compatibility), you can try excluding it:
+    ```bash
+    ./gradlew :api:assembleRelease -x :checks:compileKotlin
+    ```
+    This will generate an AAR file located at `api/build/outputs/aar/api-release.aar`.
+
+4.  **Copy the AAR to your project:**
+    *   Create a `libs` directory within each module that needs this dependency (e.g., `/LSPosedFramework/framework/libs/` and `/LSPosedFramework/modules/YourModule/libs/`).
+    *   Copy the `api-release.aar` into these `libs` directories. You might want to rename it for clarity, for example, to `xposed-api.aar`.
+
+5.  **Update module `build.gradle` files:**
+    In the `build.gradle` file of each module that now includes the local AAR (e.g., `framework/build.gradle`), modify the dependency declaration from:
+    ```gradle
+    // compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+    ```
+    to:
+    ```gradle
+    compileOnly files('libs/xposed-api.aar') // Or your chosen AAR filename
+    ```
+
+After these steps, clean and rebuild your project. This ensures that the `libxposed:api` is correctly provided, bypassing the JitPack resolution issues for this specific version.
+
+**Note:** This workaround is necessary due to the current build state of `libxposed:api` on JitPack. Ideally, future versions or configurations of `libxposed:api` might resolve this, allowing direct fetching from JitPack. Always check the JitPack build logs for the specific version you intend to use.
+
 ---
 
 ## 🤝 Contributing

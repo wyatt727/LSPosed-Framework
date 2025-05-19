@@ -2,23 +2,26 @@ buildscript {
   repositories {
     google()
     mavenCentral()
+    maven { url "https://jitpack.io" }
   }
   dependencies {
-    classpath 'com.android.tools.build:gradle:8.1.0'
+    classpath 'com.android.tools.build:gradle:8.2.0'
   }
 }
 
-allprojects {
-  repositories {
-    google()
-    mavenCentral()
-  }
-}
+// Removed allprojects block as settings.gradle is the source of truth
 
 ext {
-  xposedApiVersion = '0.4.2'   // LSPosed build for Android 15
-  minSdk           = 21
+  xposedApiVersion = '0.9.2'   // Modern libxposed API for LSPosed
+  minSdk           = 34
   targetSdk        = 35
   compileSdk       = 35
-  javaVersion      = JavaVersion.VERSION_1_8
+  javaVersion      = JavaVersion.VERSION_17
+}
+
+// Add configuration to suppress SDK warning if needed
+gradle.projectsEvaluated {
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
+    }
 } 

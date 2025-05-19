@@ -15,7 +15,6 @@ import com.wobbz.framework.IHotReloadable;
 import com.wobbz.framework.IModulePlugin;
 import com.wobbz.framework.analytics.AnalyticsManager;
 import com.wobbz.framework.annotations.HotReloadable;
-import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.framework.development.LoggingHelper;
 import com.wobbz.framework.security.SecurityManager;
 import com.wobbz.framework.security.SecurityManager.FirewallRule;
@@ -33,10 +32,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
+import com.github.libxposed.api.XC_MethodHook;
+import com.github.libxposed.api.XposedBridge;
+import com.github.libxposed.api.XposedHelpers;
+import com.github.libxposed.api.callbacks.XC_LoadPackage.LoadPackageParam;
+import com.github.libxposed.api.callbacks.IXposedHookZygoteInit.StartupParam;
 
 @HotReloadable
 public class NetworkGuardModule implements IModulePlugin, IHotReloadable, SecurityManager.SecurityListener {
@@ -46,6 +46,7 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
     private AnalyticsManager mAnalyticsManager;
     private Context mModuleContext;
     private boolean mManagersInitialized = false;
+    private LoadPackageParam mStoredLpparam;
 
     @Override
     public void initZygote(StartupParam startupParam) throws Throwable {
@@ -59,7 +60,7 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
             LoggingHelper.warning(TAG, "XposedBridge.sInitialApplication is null in initZygote. Managers will be initialized later in handleLoadPackage.");
         }
         
-        hookCoreNetworkApis();
+        hookCoreNetworkApis(null);
     }
 
     private synchronized void initializeManagers(Context context) {
@@ -104,16 +105,26 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
     
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) throws Throwable {
+        this.mStoredLpparam = lpparam;
         if (!mManagersInitialized) {
             LoggingHelper.info(TAG, "Attempting to initialize managers in handleLoadPackage for: " + lpparam.packageName);
             Context contextToUse = null;
-            if (lpparam.appInfo != null) {
-                try {
-                    contextToUse = AndroidAppHelper.currentApplication().createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
+            Application app = AndroidAppHelper.currentApplication();
+            if (app != null) {
+                contextToUse = app.getApplicationContext();
+            } else if (lpparam.appInfo != null) {
+                 try {
+                    Context baseContext = XposedBridge.sInitialApplication != null ? XposedBridge.sInitialApplication.getApplicationContext() : null;
+                    if (baseContext != null) {
+                        contextToUse = baseContext.createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
+                    } else {
+                        LoggingHelper.warning(TAG, "No base context to create package context for " + lpparam.packageName);
+                    }
                 } catch (PackageManager.NameNotFoundException | NullPointerException e) {
                      LoggingHelper.warning(TAG, "Failed to create package context for " + lpparam.packageName + ". Falling back. Error: " + e.getMessage());
                 }
             }
+            
             if (contextToUse == null && XposedBridge.sInitialApplication != null) {
                  LoggingHelper.info(TAG, "Using XposedBridge.sInitialApplication as fallback context for manager initialization.");
                  contextToUse = XposedBridge.sInitialApplication.getApplicationContext();
@@ -125,15 +136,14 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
                 LoggingHelper.error(TAG, "Still no context available in handleLoadPackage for " + lpparam.packageName + " to initialize managers.");
             }
         }
-
-        String packageName = lpparam.packageName;
+        
+        hookCoreNetworkApis(lpparam);
         hookAppNetworkOperations(lpparam);
         hookAppSpecificNetworkLibraries(lpparam);
     }
 
-    private void hookCoreNetworkApis() {
+    private void hookCoreNetworkApis(LoadPackageParam lpparam) {
         try {
-            // Hook Socket constructor
             XC_MethodHook.Unhook socketConstructorHook = XposedHelpers.findAndHookMethod(
                 Socket.class,
                 "<init>",
@@ -141,13 +151,14 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
                 int.class,
                 new XC_MethodHook() {
                     @Override
-                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    protected void beforeHookedMethod(Param param) throws Throwable {
                         InetAddress address = (InetAddress) param.args[0];
                         int port = (int) param.args[1];
+                        String currentPackageName = (lpparam != null) ? lpparam.packageName : "unknown_zygote_context";
                         
                         if (mSecurityManager != null) {
                             if (!mSecurityManager.shouldAllowConnection(
-                                    lpparam.packageName, address.getHostAddress(), port, SecurityManager.PROTO_TCP)) {
+                                    currentPackageName, address.getHostAddress(), port, SecurityManager.PROTO_TCP)) {
                                 param.setThrowable(new IOException("Connection blocked by NetworkGuard (Socket to " + address.getHostAddress() + ":" + port + ")"));
                             }
                         }
@@ -156,27 +167,25 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
             );
             mUnhooks.put("Socket.<init>", socketConstructorHook);
             
-            // Hook URL.openConnection
             XC_MethodHook.Unhook urlOpenHook = XposedHelpers.findAndHookMethod(
                 URL.class,
                 "openConnection",
                 new XC_MethodHook() {
                     @Override
-                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                        URLConnection connection = (URLConnection) param.args[0];
-                        
+                    protected void beforeHookedMethod(Param param) throws Throwable {
+                        URL urlInstance = (URL) param.thisObject;
+                        String currentPackageName = (lpparam != null) ? lpparam.packageName : "unknown_zygote_context";
+
                         if (mSecurityManager != null) {
                             if (!mSecurityManager.shouldAllowConnection(
-                                    lpparam.packageName, connection.getURL().getHost(), connection.getURL().getPort(), SecurityManager.PROTO_TCP)) {
-                                param.setThrowable(new IOException("Connection blocked by NetworkGuard (URL.openConnection to " + connection.getURL().getHost() + ":" + connection.getURL().getPort() + ")"));
+                                    currentPackageName, urlInstance.getHost(), urlInstance.getPort() == -1 ? urlInstance.getDefaultPort() : urlInstance.getPort(), SecurityManager.PROTO_TCP)) {
+                                param.setThrowable(new IOException("Connection blocked by NetworkGuard (URL.openConnection to " + urlInstance.getHost() + ":" + (urlInstance.getPort() == -1 ? urlInstance.getDefaultPort() : urlInstance.getPort()) + ")"));
                             }
                         }
                     }
                 }
             );
             mUnhooks.put("URL.openConnection", urlOpenHook);
-            
-            // OkHttp hooks are moved to hookAppSpecificNetworkLibraries as they require lpparam.classLoader
             
             LoggingHelper.info(TAG, "Core network hooks (generic) installed successfully");
             
@@ -188,10 +197,18 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
     private void hookAppNetworkOperations(LoadPackageParam lpparam) {
         if (!mManagersInitialized) {
             LoggingHelper.info(TAG, "Attempting to initialize managers in hookAppNetworkOperations for: " + lpparam.packageName);
-             Context contextToUse = null;
-            if (lpparam.appInfo != null) {
-                try {
-                    contextToUse = AndroidAppHelper.currentApplication().createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
+            Context contextToUse = null;
+            Application app = AndroidAppHelper.currentApplication();
+            if (app != null) {
+                contextToUse = app.getApplicationContext();
+            } else if (lpparam.appInfo != null) {
+                 try {
+                    Context baseContext = XposedBridge.sInitialApplication != null ? XposedBridge.sInitialApplication.getApplicationContext() : null;
+                    if (baseContext != null) {
+                        contextToUse = baseContext.createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
+                    } else {
+                        LoggingHelper.warning(TAG, "No base context to create package context for " + lpparam.packageName + " in hookAppNetworkOperations.");
+                    }
                 } catch (PackageManager.NameNotFoundException | NullPointerException e) {
                      LoggingHelper.warning(TAG, "Failed to create package context for " + lpparam.packageName + " in hookAppNetworkOperations. Falling back. Error: " + e.getMessage());
                 }
@@ -232,7 +249,7 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
                     XposedHelpers.findClass("okhttp3.Request", appClassLoader),
                     new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        protected void beforeHookedMethod(Param param) throws Throwable {
                             Object request = param.args[0];
                             Object httpUrl = XposedHelpers.callMethod(request, "url");
                             
@@ -266,7 +283,6 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
     public void onHotReload() {
         LoggingHelper.info(TAG, "Hot-reloading NetworkGuard module");
         
-        // Clean up existing hooks
         mUnhooks.values().forEach(XC_MethodHook.Unhook::unhook);
         mUnhooks.clear();
         
@@ -278,7 +294,6 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
         }
         mManagersInitialized = false;
 
-        // Reinitialize managers using the stored mModuleContext if available and valid
         if (this.mModuleContext != null) {
             LoggingHelper.info(TAG, "Re-initializing managers with stored mModuleContext on hot-reload.");
             initializeManagers(this.mModuleContext);
@@ -289,9 +304,12 @@ public class NetworkGuardModule implements IModulePlugin, IHotReloadable, Securi
             LoggingHelper.error(TAG, "Cannot re-initialize managers during hot-reload: No valid context stored or available.");
         }
         
-        // Reinstall hooks
-        hookCoreNetworkApis();
-        hookAppNetworkOperations(lpparam);
-        hookAppSpecificNetworkLibraries(lpparam);
+        if (mStoredLpparam != null) {
+            hookCoreNetworkApis(mStoredLpparam);
+            hookAppNetworkOperations(mStoredLpparam);
+            hookAppSpecificNetworkLibraries(mStoredLpparam);
+        } else {
+            LoggingHelper.error(TAG, "Cannot reinstall hooks during hot-reload: mStoredLpparam is null. Hooks will be re-applied on next handleLoadPackage.");
+        }
     }
 }

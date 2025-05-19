@@ -34,10 +34,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.github.libxposed.api.XC_MethodHook;
+import com.github.libxposed.api.XposedBridge;
+import com.github.libxposed.api.XposedHelpers;
+import com.github.libxposed.api.callbacks.XC_LoadPackage;
+import com.github.libxposed.api.callbacks.IXposedHookZygoteInit.StartupParam;
 
 /**
  * DeepIntegratorModule exposes hidden app components and modifies intent filters
@@ -398,7 +399,7 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
         }
         
         @Override
-        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+        protected void afterHookedMethod(Param param) throws Throwable {
             // Check if the result is null (component not found)
             if (param.getResult() == null) {
                 return;
@@ -420,7 +421,7 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
         }
         
         @Override
-        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+        protected void afterHookedMethod(Param param) throws Throwable {
             // Check if the result is null
             if (param.getResult() == null) {
                 return;
@@ -640,7 +641,7 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
      */
     private class PermissionBypassHook extends XC_MethodHook {
         @Override
-        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+        protected void beforeHookedMethod(Param param) throws Throwable {
             // Get parameters
             String permission = (String) param.args[0];
             int uid = (int) param.args[1];

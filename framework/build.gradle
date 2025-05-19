@@ -2,6 +2,7 @@ apply plugin: 'com.android.library'
 
 android {
   compileSdkVersion rootProject.ext.compileSdk
+  namespace 'com.wobbz.framework'
   
   defaultConfig {
     minSdkVersion rootProject.ext.minSdk
@@ -21,9 +22,33 @@ android {
   }
 }
 
+configurations {
+    implementation {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    api {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    compileOnly {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+}
+
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+}
+
 dependencies {
   // XPosed APIs
-  compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+  // Comment out the JitPack dependency
+  // compileOnly "com.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+  // Use the local AAR file instead
+  compileOnly files('libs/xposed-api.aar')
   
   // For annotation processing
   implementation 'com.google.auto.service:auto-service:1.0.1'

@@ -27,10 +27,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.github.libxposed.api.XC_MethodHook;
+import com.github.libxposed.api.XposedBridge;
+import com.github.libxposed.api.XposedHelpers;
+import com.github.libxposed.api.callbacks.XC_LoadPackage;
 
 /**
  * IntentMasterModule - Intercepts, modifies, redirects, and logs intents between applications.
@@ -176,7 +176,7 @@ public class IntentMasterModule {
         XposedHelpers.findAndHookMethod(Activity.class, "startActivity", 
                 Intent.class, new XC_MethodHook() {
                     @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
+                    protected void beforeHookedMethod(Param param) {
                         if (!interceptionEnabled) return;
                         
                         Activity activity = (Activity) param.thisObject;
@@ -197,7 +197,7 @@ public class IntentMasterModule {
         XposedHelpers.findAndHookMethod(Activity.class, "startActivity", 
                 Intent.class, Bundle.class, new XC_MethodHook() {
                     @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
+                    protected void beforeHookedMethod(Param param) {
                         if (!interceptionEnabled) return;
                         
                         Activity activity = (Activity) param.thisObject;
@@ -219,7 +219,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "startActivity", 
                     Intent.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -240,7 +240,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "startActivity", 
                     Intent.class, Bundle.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -270,7 +270,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "startService", 
                     Intent.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -296,7 +296,7 @@ public class IntentMasterModule {
                 XposedHelpers.findAndHookMethod(Context.class, "startForegroundService", 
                         Intent.class, new XC_MethodHook() {
                             @Override
-                            protected void beforeHookedMethod(MethodHookParam param) {
+                            protected void beforeHookedMethod(Param param) {
                                 if (!interceptionEnabled) return;
                                 
                                 Context context = (Context) param.thisObject;
@@ -327,7 +327,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "sendBroadcast", 
                     Intent.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -352,7 +352,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "sendBroadcast", 
                     Intent.class, String.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -377,7 +377,7 @@ public class IntentMasterModule {
             XposedHelpers.findAndHookMethod(Context.class, "sendOrderedBroadcast", 
                     Intent.class, String.class, new XC_MethodHook() {
                         @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
+                        protected void beforeHookedMethod(Param param) {
                             if (!interceptionEnabled) return;
                             
                             Context context = (Context) param.thisObject;
@@ -415,7 +415,7 @@ public class IntentMasterModule {
                         
                         XposedBridge.hookMethod(method, new XC_MethodHook() {
                             @Override
-                            protected void beforeHookedMethod(MethodHookParam param) {
+                            protected void beforeHookedMethod(Param param) {
                                 if (!interceptionEnabled) return;
                                 
                                 Context context = (Context) param.thisObject;

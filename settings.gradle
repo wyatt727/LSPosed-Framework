@@ -1,6 +1,17 @@
+dependencyResolutionManagement {
+  repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+  repositories {
+    google()
+    mavenCentral()
+    maven { url "https://jitpack.io" }
+  }
+}
+
 rootProject.name = "LSPosedFramework"
 include ':framework'
-fileTree('modules').eachDir { dir ->
-  include ":modules:${dir.name}"
-  project(":modules:${dir.name}").projectDir = dir
+file('modules').listFiles().each { dir ->
+  if (dir.isDirectory()) {
+    include ":modules:${dir.name}"
+    project(":modules:${dir.name}").projectDir = dir
+  }
 } 

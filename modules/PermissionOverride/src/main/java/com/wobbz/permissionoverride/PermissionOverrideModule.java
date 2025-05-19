@@ -1,10 +1,15 @@
 package com.wobbz.permissionoverride;
 
+import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.Binder;
 import android.os.Build;
+import android.os.IBinder;
 import android.os.Process;
+import android.os.RemoteException;
+import android.util.Log;
 
 import com.wobbz.framework.IHotReloadable;
 import com.wobbz.framework.IModulePlugin;
@@ -28,17 +33,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XC_MethodReplacement;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.github.libxposed.api.IXposedHookLoadPackage;
+import com.github.libxposed.api.XC_MethodHook;
+import com.github.libxposed.api.XposedInterface;
+import com.github.libxposed.api.XposedHelpers;
+import com.github.libxposed.api.callbacks.XC_LoadPackage;
 
 /**
  * PermissionOverride module provides functionality to override permission checks,
  * bypass signature verification, and enhance reflection capabilities.
  */
-public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, IPermissionOverrideService {
+public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, IXposedHookLoadPackage, IPermissionOverrideService {
     private static final String TAG = "PermissionOverrideModule";
     private static final String MODULE_ID = "com.wobbz.PermissionOverride";
     
@@ -46,8 +51,8 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
     public static final String SERVICE_KEY = "com.wobbz.PermissionOverride.service";
     
     // Permission result values
-    public static final int PERMISSION_GRANTED = PackageManager.PERMISSION_GRANTED;
-    public static final int PERMISSION_DENIED = PackageManager.PERMISSION_DENIED;
+    public static final int PERMISSION_GRANTED = android.content.pm.PackageManager.PERMISSION_GRANTED;
+    public static final int PERMISSION_DENIED = android.content.pm.PackageManager.PERMISSION_DENIED;
     public static final int PERMISSION_DEFAULT = -2;
     
     // Store active hooks for hot reload support
@@ -70,6 +75,24 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
     private String mDefaultBehavior;
     private FeatureManager mFeatureManager;
     
+    private IPermissionOverrideService mService = null;
+    private final Set<String> forcedPermissions = new HashSet<>();
+    private final Set<String> suppressedPermissions = new HashSet<>();
+
+    private final ServiceConnection mConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            mService = IPermissionOverrideService.Stub.asInterface(service);
+            XposedInterface.Utils.log(TAG + ": Connected to PermissionOverrideService");
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mService = null;
+            XposedInterface.Utils.log(TAG + ": Disconnected from PermissionOverrideService");
+        }
+    };
+
     /**
      * Handle a package being loaded.
      *
@@ -77,7 +100,7 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
      * @param lpparam The parameters for the loaded package.
      */
     @Override
-    public void handleLoadPackage(Context context, XC_LoadPackage.LoadPackageParam lpparam) {
+    public void handleLoadPackage(Context context, XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
         mContext = context;
         mSettings = new SettingsHelper(context, MODULE_ID);
         mFeatureManager = FeatureManager.getInstance(context);
@@ -94,6 +117,94 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
         // Hook signature verification if enabled
         if (mBypassSignatures) {
             hookSignatureChecks(lpparam);
+        }
+
+        if (lpparam.packageName.equals("android")) {
+            connectToService(lpparam);
+
+            // Hook checkPermission
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.pm.permission.PermissionManagerService",
+                    lpparam.classLoader,
+                    "checkPermission",
+                    String.class, String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                            String permissionName = (String) param.args[0];
+                            String pkgName = (String) param.args[1];
+                            // int callingUid = (int) param.args[2]; // Not directly used but available
+
+                            if (mService != null) {
+                                try {
+                                    if (mService.P_isAppPermissionForced(pkgName, permissionName)) {
+                                        param.setResult(android.content.pm.PackageManager.PERMISSION_GRANTED);
+                                        XposedInterface.Utils.log(TAG + ": Forced permission GRANTED for " + pkgName + " / " + permissionName);
+                                    } else if (mService.P_isAppPermissionSuppressed(pkgName, permissionName)) {
+                                        param.setResult(android.content.pm.PackageManager.PERMISSION_DENIED);
+                                        XposedInterface.Utils.log(TAG + ": Suppressed permission DENIED for " + pkgName + " / " + permissionName);
+                                    }
+                                } catch (RemoteException e) {
+                                    XposedInterface.Utils.log(TAG + ": RemoteException while checking permission: " + e.getMessage());
+                                }
+                            } else {
+                                // Fallback or log if service not connected
+                                if (forcedPermissions.contains(pkgName + "/" + permissionName)) {
+                                    param.setResult(android.content.pm.PackageManager.PERMISSION_GRANTED);
+                                } else if (suppressedPermissions.contains(pkgName + "/" + permissionName)) {
+                                     param.setResult(android.content.pm.PackageManager.PERMISSION_DENIED);
+                                }
+                            }
+                        }
+                    });
+
+            // Hook grantRuntimePermission
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.pm.permission.PermissionManagerService",
+                    lpparam.classLoader,
+                    "grantRuntimePermission",
+                    String.class, String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                            String packageName = (String) param.args[0];
+                            String permName = (String) param.args[1];
+                            if (mService != null) {
+                                try {
+                                    if (mService.P_isAppPermissionSuppressed(packageName, permName)) {
+                                        XposedInterface.Utils.log(TAG + ": Attempt to grant suppressed permission " + permName + " for " + packageName + ". Preventing grant.");
+                                        param.setResult(null); // Prevent permission grant
+                                    }
+                                } catch (RemoteException e) {
+                                    XposedInterface.Utils.log(TAG + ": RemoteException in grantRuntimePermission hook: " + e.getMessage());
+                                }
+                            }
+                        }
+                    });
+
+            // Hook revokeRuntimePermission
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.pm.permission.PermissionManagerService",
+                    lpparam.classLoader,
+                    "revokeRuntimePermission",
+                    String.class, String.class, int.class, String.class, // Added String.class for reason
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                            String packageName = (String) param.args[0];
+                            String permName = (String) param.args[1];
+                            if (mService != null) {
+                                try {
+                                    if (mService.P_isAppPermissionForced(packageName, permName)) {
+                                        XposedInterface.Utils.log(TAG + ": Attempt to revoke forced permission " + permName + " for " + packageName + ". Preventing revocation.");
+                                        param.setResult(null); // Prevent permission revocation
+                                    }
+                                } catch (RemoteException e) {
+                                    XposedInterface.Utils.log(TAG + ": RemoteException in revokeRuntimePermission hook: " + e.getMessage());
+                                }
+                            }
+                        }
+                    });
         }
     }
     
@@ -173,11 +284,12 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
      * @param lpparam The parameters for the loaded package.
      */
     private void hookPermissionChecks(XC_LoadPackage.LoadPackageParam lpparam) {
-        // Hook ContextImpl.checkPermission
+        // Example: Hooking checkPermission in ActivityManagerService
+        // Note: This is a simplified example. Real-world usage might involve more classes or specific methods.
         try {
-            XC_MethodHook permissionCheck = new XC_MethodHook() {
+            XposedHelpers.findAndHookMethod(Context.class, "checkPermission", String.class, int.class, int.class, new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
                     String permission = (String) param.args[0];
                     int pid = (int) param.args[1];
                     int uid = (int) param.args[2];
@@ -205,216 +317,179 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
                         param.setResult(result);
                     }
                 }
-            };
-            
-            // Hook Android's main permission checking methods
-            Class<?> contextImplClass = XposedHelpers.findClass("android.app.ContextImpl", lpparam.classLoader);
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(contextImplClass, 
-                    "checkPermission", String.class, int.class, int.class, permissionCheck));
-            
-            // Also hook checkCallingPermission and other variants
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(contextImplClass, 
-                    "checkCallingPermission", String.class, permissionCheck));
-            
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(contextImplClass, 
-                    "checkCallingOrSelfPermission", String.class, permissionCheck));
-            
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(contextImplClass, 
-                    "checkSelfPermission", String.class, permissionCheck));
-            
-            // Hook enforcePermission methods too
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(contextImplClass, 
-                    "enforcePermission", String.class, int.class, int.class, String.class, 
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            String permission = (String) param.args[0];
-                            int pid = (int) param.args[1];
-                            int uid = (int) param.args[2];
-                            
-                            // Skip self-checks
-                            if (pid == Process.myPid() || uid == Process.myUid()) {
-                                return;
-                            }
-                            
-                            // Get the package name for the UID
-                            String packageName = getPackageNameForUid(uid);
-                            if (packageName == null || !isTargetedPackage(packageName)) {
-                                return;
-                            }
-                            
-                            // Check the permission override
-                            Integer result = checkPermissionOverride(packageName, permission);
-                            if (result != null && result == PERMISSION_GRANTED) {
-                                // Log the permission request if enabled
-                                if (mLogRequests) {
-                                    logPermissionRequest(packageName, permission, true);
-                                }
-                                
-                                // Skip the original method
-                                param.setResult(null);
+            });
+
+            XposedHelpers.findAndHookMethod("android.app.ApplicationPackageManager", lpparam.classLoader, "checkPermission", String.class, String.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                    String permission = (String) param.args[0];
+                    String packageName = (String) param.args[1];
+                    Integer result = checkPermissionOverride(packageName, permission);
+                    if (result != null) {
+                        if (result == PERMISSION_GRANTED) {
+                            param.setResult(true); // Assuming this method returns boolean for granted
+                        } else if (result == PERMISSION_DENIED) {
+                            param.setResult(false); // Assuming this method returns boolean for denied
+                        }
+                    }
+                    if (mLogRequests) {
+                        logPermissionRequest(packageName, permission, result != null && result == PERMISSION_GRANTED);
+                    }
+                }
+            });
+
+            // For services that manage permissions using their own internal checks.
+            // Example: Some system services might have custom permission checking logic.
+            // This requires identifying specific methods in those services.
+            // For instance, if a hypothetical "CustomPermissionService" has "verifyAccess":
+            /*
+            XposedHelpers.findAndHookMethod("com.android.server.CustomPermissionService", lpparam.classLoader, "verifyAccess",
+                String.class, // packageName
+                String.class, // permissionName
+                int.class,    // callingUid
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                        String packageName = (String) param.args[0];
+                        String permission = (String) param.args[1];
+                        Integer result = checkPermissionOverride(packageName, permission);
+                        if (result != null) {
+                            if (result == PERMISSION_GRANTED) {
+                                param.setResult(true); // Assuming this method returns boolean for granted
+                            } else if (result == PERMISSION_DENIED) {
+                                param.setResult(false); // Assuming this method returns boolean for denied
                             }
                         }
-                    }));
-            
-            // Hook ActivityManagerService for runtime permission checks
-            if (lpparam.packageName.equals("android") || lpparam.packageName.equals("system")) {
+                        if (mLogRequests) {
+                            logPermissionRequest(packageName, permission, result != null && result == PERMISSION_GRANTED);
+                        }
+                    }
+                });
+            */
+
+            // Hooking ContentProvider.checkPermission methods if necessary
+            // This is more complex due to how ContentProviders are accessed.
+            // Usually, permission checks happen before calling the provider or within its methods.
+            // Example: Hooking a specific ContentProvider's query/insert/update/delete if they do custom checks.
+            /*
+            XposedHelpers.findAndHookMethod("android.content.ContentProvider", lpparam.classLoader,
+                "checkPermission", // This is a hypothetical common check method in ContentProvider subclasses
+                String.class, // permission
+                int.class,    // pid
+                int.class,    // uid
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                        // Similar override logic
+                    }
+            });
+            */
+
+            // Fallback for older Android versions or specific OEM implementations if needed
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                // Example: Hooking checkUidPermission for older systems
                 try {
-                    Class<?> amsClass = XposedHelpers.findClass("com.android.server.am.ActivityManagerService", 
-                            lpparam.classLoader);
-                    
-                    mActiveHooks.add(XposedHelpers.findAndHookMethod(amsClass, 
-                            "checkPermission", String.class, int.class, int.class, new XC_MethodHook() {
-                                @Override
-                                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                                    String permission = (String) param.args[0];
-                                    int pid = (int) param.args[1];
-                                    int uid = (int) param.args[2];
-                                    
-                                    // Skip self-checks
-                                    if (pid == Process.myPid() || uid == Process.myUid()) {
-                                        return;
-                                    }
-                                    
-                                    // Get the package name for the UID
-                                    String packageName = getPackageNameForUid(uid);
-                                    if (packageName == null || !isTargetedPackage(packageName)) {
-                                        return;
-                                    }
-                                    
-                                    // Check the permission override
-                                    Integer result = checkPermissionOverride(packageName, permission);
-                                    if (result != null) {
-                                        // Log the permission request if enabled
-                                        if (mLogRequests) {
-                                            logPermissionRequest(packageName, permission, result == PERMISSION_GRANTED);
-                                        }
-                                        
-                                        // Set the result and skip the original method
-                                        param.setResult(result);
-                                    }
-                                }
-                            }));
-                } catch (Throwable t) {
-                    // Not a critical error, the AMS might be different in this Android version
-                    LoggingHelper.debug(TAG, "Could not hook ActivityManagerService: " + t.getMessage());
-                }
-            }
-            
-            // Hook requestPermissions in Activity
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                Class<?> activityClass = XposedHelpers.findClass("android.app.Activity", lpparam.classLoader);
-                mActiveHooks.add(XposedHelpers.findAndHookMethod(activityClass, 
-                        "requestPermissions", String[].class, int.class, new XC_MethodHook() {
+                    XposedHelpers.findAndHookMethod(
+                        "com.android.server.pm.PackageManagerService", // May vary
+                        lpparam.classLoader,
+                        "checkUidPermission",
+                        String.class, int.class,
+                        new XC_MethodHook() {
                             @Override
-                            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                                String[] permissions = (String[]) param.args[0];
-                                int requestCode = (int) param.args[1];
-                                
-                                // Get the activity's package name
-                                String packageName = null;
-                                if (param.thisObject != null) {
-                                    packageName = (String) XposedHelpers.callMethod(param.thisObject, "getPackageName");
+                            protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                                String permissionName = (String) param.args[0];
+                                int uid = (Integer) param.args[1];
+                                String[] packages = lpparam.appInfo.packageName == null ? null : new String[]{lpparam.appInfo.packageName}; // Simplified
+                                if (packages == null && mContext != null) {
+                                   packages = mContext.getPackageManager().getPackagesForUid(uid);
                                 }
-                                
-                                if (packageName == null || !isTargetedPackage(packageName)) {
-                                    return;
-                                }
-                                
-                                // Check if we should handle this request
-                                boolean shouldHandle = false;
-                                int[] grantResults = new int[permissions.length];
-                                
-                                for (int i = 0; i < permissions.length; i++) {
-                                    Integer result = checkPermissionOverride(packageName, permissions[i]);
-                                    if (result != null) {
-                                        shouldHandle = true;
-                                        grantResults[i] = result;
-                                        
-                                        // Log the permission request if enabled
-                                        if (mLogRequests) {
-                                            logPermissionRequest(packageName, permissions[i], result == PERMISSION_GRANTED);
+
+                                if (packages != null) {
+                                    for (String pkgName : packages) {
+                                        Integer result = checkPermissionOverride(pkgName, permissionName);
+                                        if (result != null && result == PERMISSION_GRANTED) {
+                                            param.setResult(android.content.pm.PackageManager.PERMISSION_GRANTED);
+                                            return;
                                         }
-                                    } else {
-                                        grantResults[i] = PERMISSION_DENIED; // Default to denied
+                                        if (result != null && result == PERMISSION_DENIED) {
+                                            param.setResult(android.content.pm.PackageManager.PERMISSION_DENIED);
+                                            // Potentially log or take action
+                                            return; // If one package mapped to UID is denied, result is denial.
+                                        }
                                     }
-                                }
-                                
-                                if (shouldHandle) {
-                                    // Call onRequestPermissionsResult directly
-                                    XposedHelpers.callMethod(param.thisObject, 
-                                            "onRequestPermissionsResult", requestCode, permissions, grantResults);
-                                    
-                                    // Skip the original method
-                                    param.setResult(null);
                                 }
                             }
-                        }));
+                        });
+                } catch (Throwable t) {
+                    LoggingHelper.log(TAG, "Failed to hook checkUidPermission (old systems): " + t.getMessage(), t);
+                }
             }
-            
-            log("Hooked permission checks in " + lpparam.packageName);
-            
+
         } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to hook permission checks in " + lpparam.packageName, t);
+            LoggingHelper.log(TAG, "Error hooking permission checks: " + t.getMessage(), t);
         }
     }
     
     /**
-     * Hook signature verification methods.
+     * Hook signature verification methods to bypass them if enabled.
      *
      * @param lpparam The parameters for the loaded package.
      */
     private void hookSignatureChecks(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            // Hook PackageManager.checkSignatures
-            XC_MethodReplacement signatureCheckReplacement = new XC_MethodReplacement() {
+            XposedHelpers.findAndHookMethod("com.android.server.pm.PackageManagerService", lpparam.classLoader, "compareSignatures",
+                    "android.content.pm.Signature[]", "android.content.pm.Signature[]", new XC_MethodHook() {
                 @Override
-                protected Object replaceHookedMethod(MethodHookParam param) throws Throwable {
-                    // Check if this is a targeted package
-                    String callingPackage = getCallingPackageName();
-                    if (callingPackage != null && isTargetedPackage(callingPackage)) {
-                        // Return PackageManager.SIGNATURE_MATCH to bypass the check
-                        return PackageManager.SIGNATURE_MATCH;
+                protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                    if (mBypassSignatures) {
+                        param.setResult(android.content.pm.PackageManager.SIGNATURE_MATCH);
                     }
-                    
-                    // Call the original method
-                    return XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
                 }
-            };
-            
-            Class<?> packageManagerClass = XposedHelpers.findClass("android.content.pm.PackageManager", 
-                    lpparam.classLoader);
-            
-            // Hook both variants of checkSignatures
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(packageManagerClass, 
-                    "checkSignatures", String.class, String.class, signatureCheckReplacement));
-            
-            mActiveHooks.add(XposedHelpers.findAndHookMethod(packageManagerClass, 
-                    "checkSignatures", int.class, int.class, signatureCheckReplacement));
-            
-            // If this is the system package, hook the internal implementation as well
-            if (lpparam.packageName.equals("android") || lpparam.packageName.equals("system")) {
-                try {
-                    Class<?> packageManagerServiceClass = XposedHelpers.findClass(
-                            "com.android.server.pm.PackageManagerService", lpparam.classLoader);
-                    
-                    mActiveHooks.add(XposedHelpers.findAndHookMethod(packageManagerServiceClass, 
-                            "checkSignaturesLP", "android.content.pm.PackageParser$Package", 
-                            "android.content.pm.PackageParser$Package", signatureCheckReplacement));
-                    
-                    mActiveHooks.add(XposedHelpers.findAndHookMethod(packageManagerServiceClass, 
-                            "compareSignatures", "android.content.pm.Signature[]", 
-                            "android.content.pm.Signature[]", signatureCheckReplacement));
-                } catch (Throwable t) {
-                    // Not a critical error, method names may be different in this Android version
-                    LoggingHelper.debug(TAG, "Could not hook internal signature methods: " + t.getMessage());
+            });
+
+            // Hook for checking signing certificates (platform vs. app)
+            XposedHelpers.findAndHookMethod("com.android.server.pm.PackageManagerServiceUtils", lpparam.classLoader, "compareSignatures",
+                "android.content.pm.Signature[]", "android.content.pm.Signature[]", "boolean", // isPlatformAllowed
+                new XC_MethodHook() {
+                     @Override
+                    protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                        if (mBypassSignatures) {
+                             param.setResult(android.content.pm.PackageManager.SIGNATURE_MATCH);
+                        }
+                    }
+                });
+
+            // Some apps use PackageInfo.signatures
+             XposedHelpers.findAndHookMethod("android.app.ApplicationPackageManager", lpparam.classLoader, "getPackageInfo", String.class, int.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                    if (mBypassSignatures && param.getResult() != null) {
+                        android.content.pm.PackageInfo pkgInfo = (android.content.pm.PackageInfo) param.getResult();
+                        String callingPackage = getCallingPackageName(); // May need improvement to get actual caller
+                        if (pkgInfo != null && callingPackage != null && isTargetedPackage(callingPackage)) {
+                           // Potentially modify pkgInfo.signatures here if needed, e.g., to match platform sigs
+                           // This is risky and app-specific.
+                           // For now, primarily relying on compareSignatures hooks.
+                        }
+                    }
                 }
+            });
+            
+            // On Android P and above, checkSignatures is used
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                XposedHelpers.findAndHookMethod("com.android.server.pm.PackageManagerService", lpparam.classLoader, "checkSignatures",
+                    String.class, String.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(XC_MethodHook.Param param) throws Throwable {
+                            if (mBypassSignatures) {
+                                param.setResult(android.content.pm.PackageManager.SIGNATURE_MATCH);
+                            }
+                        }
+                    });
             }
-            
-            log("Hooked signature checks in " + lpparam.packageName);
-            
+
         } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to hook signature checks in " + lpparam.packageName, t);
+            LoggingHelper.log(TAG, "Error hooking signature checks: " + t.getMessage(), t);
         }
     }
     
@@ -522,241 +597,6 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
     }
     
     /**
-     * Find a class with enhanced reflection capabilities.
-     *
-     * @param className The class name.
-     * @param classLoader The class loader.
-     * @return The class, or null if not found.
-     */
-    public Class<?> findClass(String className, ClassLoader classLoader) {
-        try {
-            // First try standard approach
-            return Class.forName(className, false, classLoader);
-        } catch (ClassNotFoundException e) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findClass(className, classLoader);
-            } catch (Throwable t) {
-                LoggingHelper.error(TAG, "Failed to find class: " + className, t);
-                return null;
-            }
-        }
-    }
-    
-    /**
-     * Find a method with enhanced reflection capabilities.
-     *
-     * @param clazz The class.
-     * @param methodName The method name.
-     * @param parameterTypes The parameter types.
-     * @return The method, or null if not found.
-     */
-    public Method findMethod(Class<?> clazz, String methodName, Object[] parameterTypes) {
-        try {
-            // First try standard approach
-            if (parameterTypes == null) {
-                // Find any method with this name
-                Method[] methods = clazz.getDeclaredMethods();
-                for (Method method : methods) {
-                    if (method.getName().equals(methodName)) {
-                        method.setAccessible(true);
-                        return method;
-                    }
-                }
-                return null;
-            } else {
-                // Convert Object[] to Class[]
-                Class<?>[] paramClasses = new Class<?>[parameterTypes.length];
-                for (int i = 0; i < parameterTypes.length; i++) {
-                    if (parameterTypes[i] instanceof Class) {
-                        paramClasses[i] = (Class<?>) parameterTypes[i];
-                    } else {
-                        // Try to find the class by name
-                        paramClasses[i] = findClass(parameterTypes[i].toString(), clazz.getClassLoader());
-                    }
-                }
-                
-                Method method = clazz.getDeclaredMethod(methodName, paramClasses);
-                method.setAccessible(true);
-                return method;
-            }
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findMethodExact(clazz, methodName, parameterTypes);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to find method: " + methodName, e);
-                return null;
-            }
-        }
-    }
-    
-    /**
-     * Find a constructor with enhanced reflection capabilities.
-     *
-     * @param clazz The class.
-     * @param parameterTypes The parameter types.
-     * @return The constructor, or null if not found.
-     */
-    public Constructor<?> findConstructor(Class<?> clazz, Object[] parameterTypes) {
-        try {
-            // First try standard approach
-            if (parameterTypes == null) {
-                // Find the default constructor
-                Constructor<?> constructor = clazz.getDeclaredConstructor();
-                constructor.setAccessible(true);
-                return constructor;
-            } else {
-                // Convert Object[] to Class[]
-                Class<?>[] paramClasses = new Class<?>[parameterTypes.length];
-                for (int i = 0; i < parameterTypes.length; i++) {
-                    if (parameterTypes[i] instanceof Class) {
-                        paramClasses[i] = (Class<?>) parameterTypes[i];
-                    } else {
-                        // Try to find the class by name
-                        paramClasses[i] = findClass(parameterTypes[i].toString(), clazz.getClassLoader());
-                    }
-                }
-                
-                Constructor<?> constructor = clazz.getDeclaredConstructor(paramClasses);
-                constructor.setAccessible(true);
-                return constructor;
-            }
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findConstructorExact(clazz, parameterTypes);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to find constructor", e);
-                return null;
-            }
-        }
-    }
-    
-    /**
-     * Get the value of a field from an object.
-     *
-     * @param obj The object (null for static fields).
-     * @param className The class name.
-     * @param fieldName The field name.
-     * @param classLoader The class loader.
-     * @return The field value, or null if not found.
-     */
-    public Object getFieldValue(Object obj, String className, String fieldName, ClassLoader classLoader) {
-        try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
-                return null;
-            }
-            
-            Field field = clazz.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return field.get(obj);
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.getObjectField(obj, fieldName);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to get field value: " + fieldName, e);
-                return null;
-            }
-        }
-    }
-    
-    /**
-     * Set the value of a field in an object.
-     *
-     * @param obj The object (null for static fields).
-     * @param className The class name.
-     * @param fieldName The field name.
-     * @param value The value to set.
-     * @param classLoader The class loader.
-     * @return true if successful, false otherwise.
-     */
-    public boolean setFieldValue(Object obj, String className, String fieldName, Object value, ClassLoader classLoader) {
-        try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
-                return false;
-            }
-            
-            Field field = clazz.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            field.set(obj, value);
-            return true;
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                XposedHelpers.setObjectField(obj, fieldName, value);
-                return true;
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to set field value: " + fieldName, e);
-                return false;
-            }
-        }
-    }
-    
-    /**
-     * Create a new instance of a class.
-     *
-     * @param className The class name.
-     * @param classLoader The class loader.
-     * @param constructorParams The constructor parameters.
-     * @return The new instance, or null if failed.
-     */
-    public Object createInstance(String className, ClassLoader classLoader, Object... constructorParams) {
-        try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
-                return null;
-            }
-            
-            if (constructorParams == null || constructorParams.length == 0) {
-                // Use default constructor
-                Constructor<?> constructor = clazz.getDeclaredConstructor();
-                constructor.setAccessible(true);
-                return constructor.newInstance();
-            } else {
-                // Use XposedHelpers for constructor access
-                return XposedHelpers.newInstance(clazz, constructorParams);
-            }
-        } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to create instance: " + className, t);
-            return null;
-        }
-    }
-    
-    /**
-     * Invoke a method on an object.
-     *
-     * @param obj The object (null for static methods).
-     * @param className The class name.
-     * @param methodName The method name.
-     * @param classLoader The class loader.
-     * @param params The method parameters.
-     * @return The method result, or null if failed.
-     */
-    public Object invokeMethod(Object obj, String className, String methodName, ClassLoader classLoader, Object... params) {
-        try {
-            Class<?> clazz;
-            if (obj != null) {
-                clazz = obj.getClass();
-            } else {
-                clazz = findClass(className, classLoader);
-                if (clazz == null) {
-                    return null;
-                }
-            }
-            
-            // Use XposedHelpers for method invocation
-            return XposedHelpers.callMethod(obj, methodName, params);
-        } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to invoke method: " + methodName, t);
-            return null;
-        }
-    }
-    
-    /**
      * Handle hot reload requests.
      * This removes active hooks so they can be reinstalled with new settings.
      */
@@ -813,248 +653,183 @@ public class PermissionOverrideModule implements IModulePlugin, IHotReloadable, 
         // This distinguishes from `null` which means "no opinion from this module for this specific permission entry"
         return PERMISSION_DEFAULT; 
     }
+    
+    @Override
+    public boolean P_isAppPermissionForced(String packageName, String permission) {
+        Map<String, Integer> packageOverrides = mAppPermissionOverrides.get(packageName);
+        if (packageOverrides != null && packageOverrides.containsKey(permission)) {
+            return packageOverrides.get(permission) == PERMISSION_GRANTED;
+        }
+        return false;
+    }
+    
+    @Override
+    public boolean P_isAppPermissionSuppressed(String packageName, String permission) {
+        Map<String, Integer> packageOverrides = mAppPermissionOverrides.get(packageName);
+        if (packageOverrides != null && packageOverrides.containsKey(permission)) {
+            return packageOverrides.get(permission) == PERMISSION_DENIED;
+        }
+        return false;
+    }
 
     @Override
     public Class<?> findClass(String className, ClassLoader classLoader) {
+        // Implementation for the interface, using XposedHelpers
         try {
-            // First try standard approach
-            return Class.forName(className, false, classLoader);
-        } catch (ClassNotFoundException e) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findClass(className, classLoader);
-            } catch (Throwable t) {
-                LoggingHelper.error(TAG, "Failed to find class: " + className, t);
-                return null;
-            }
-        }
-    }
-
-    @Override
-    public Method findMethod(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
-        try {
-            // First try standard approach
-            if (parameterTypes == null) {
-                // Find any method with this name
-                Method[] methods = clazz.getDeclaredMethods();
-                for (Method method : methods) {
-                    if (method.getName().equals(methodName)) {
-                        method.setAccessible(true);
-                        return method;
-                    }
-                }
-                return null;
-            } else {
-                // Convert Class[] to Class<?>[]
-                Class<?>[] paramClasses = new Class<?>[parameterTypes.length];
-                for (int i = 0; i < parameterTypes.length; i++) {
-                    if (parameterTypes[i] instanceof Class) {
-                        paramClasses[i] = (Class<?>) parameterTypes[i];
-                    } else {
-                        // Try to find the class by name
-                        paramClasses[i] = findClass(parameterTypes[i].toString(), clazz.getClassLoader());
-                    }
-                }
-                
-                Method method = clazz.getDeclaredMethod(methodName, paramClasses);
-                method.setAccessible(true);
-                return method;
-            }
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findMethodExact(clazz, methodName, parameterTypes);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to find method: " + methodName, e);
-                return null;
-            }
-        }
-    }
-
-    @Override
-    public Method findMethodWithObjects(Class<?> clazz, String methodName, Object[] rawParameterTypes) {
-        if (clazz == null || methodName == null) return null;
-        try {
-            Class<?>[] parameterClasses = null;
-            if (rawParameterTypes != null) {
-                parameterClasses = new Class<?>[rawParameterTypes.length];
-                for (int i = 0; i < rawParameterTypes.length; i++) {
-                    if (rawParameterTypes[i] instanceof Class) {
-                        parameterClasses[i] = (Class<?>) rawParameterTypes[i];
-                    } else if (rawParameterTypes[i] instanceof String) {
-                        // Attempt to load class by name if a string is provided
-                        try {
-                            parameterClasses[i] = XposedHelpers.findClass((String) rawParameterTypes[i], clazz.getClassLoader());
-                        } catch (XposedHelpers.ClassNotFoundError e) {
-                            LoggingHelper.warning(TAG, "Could not find class for parameter type string: " + rawParameterTypes[i]);
-                            return null; // Or throw, or handle error appropriately
-                        }
-                    } else {
-                        LoggingHelper.warning(TAG, "Unsupported parameter type object: " + rawParameterTypes[i]);
-                        return null; // Or throw
-                    }
-                }
-            }
-            return XposedHelpers.findMethodExact(clazz, methodName, parameterClasses);
-        } catch (Throwable t) {
-            log("Error finding method (object params) " + methodName + " in class " + clazz.getName() + ": " + t.getMessage());
+            return XposedHelpers.findClass(className, classLoader);
+        } catch (XposedHelpers.ClassNotFoundError e) {
+            log("IPermissionOverrideService: Class not found: " + className);
             return null;
         }
     }
 
     @Override
-    public Constructor<?> findConstructor(Class<?> clazz, Class<?>... parameterTypes) {
+    public Method findMethod(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
+        // Implementation for the interface
+        if (clazz == null) return null;
         try {
-            // First try standard approach
-            if (parameterTypes == null) {
-                // Find the default constructor
-                Constructor<?> constructor = clazz.getDeclaredConstructor();
-                constructor.setAccessible(true);
-                return constructor;
-            } else {
-                // Convert Class[] to Class<?>[]
-                Class<?>[] paramClasses = new Class<?>[parameterTypes.length];
-                for (int i = 0; i < parameterTypes.length; i++) {
-                    if (parameterTypes[i] instanceof Class) {
-                        paramClasses[i] = (Class<?>) parameterTypes[i];
-                    } else {
-                        // Try to find the class by name
-                        paramClasses[i] = findClass(parameterTypes[i].toString(), clazz.getClassLoader());
-                    }
-                }
-                
-                Constructor<?> constructor = clazz.getDeclaredConstructor(paramClasses);
-                constructor.setAccessible(true);
-                return constructor;
-            }
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.findConstructorExact(clazz, parameterTypes);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to find constructor", e);
-                return null;
-            }
+            return XposedHelpers.findMethodExact(clazz, methodName, parameterTypes);
+        } catch (NoSuchMethodError e) {
+            log("IPermissionOverrideService: Method not found: " + methodName);
+            return null;
+        }
+    }
+
+    @Override
+    public Method findMethodWithObjects(Class<?> clazz, String methodName, Object[] rawParameterTypes) {
+        // Implementation for the interface
+        if (clazz == null) return null;
+        try {
+            return XposedHelpers.findMethodExact(clazz, methodName, rawParameterTypes);
+        } catch (NoSuchMethodError e) {
+            log("IPermissionOverrideService: Method (with objects) not found: " + methodName);
+            return null;
+        }    
+    }
+
+    @Override
+    public Constructor<?> findConstructor(Class<?> clazz, Class<?>... parameterTypes) {
+        // Implementation for the interface
+        if (clazz == null) return null;
+        try {
+            return XposedHelpers.findConstructorExact(clazz, parameterTypes);
+        } catch (NoSuchMethodError e) {
+            log("IPermissionOverrideService: Constructor not found for class " + clazz.getName());
+            return null;
         }
     }
 
     @Override
     public Constructor<?> findConstructorWithObjects(Class<?> clazz, Object[] rawParameterTypes) {
-         if (clazz == null) return null;
+        // Implementation for the interface
+        if (clazz == null) return null;
         try {
-            Class<?>[] parameterClasses = null;
-            if (rawParameterTypes != null) {
-                parameterClasses = new Class<?>[rawParameterTypes.length];
-                for (int i = 0; i < rawParameterTypes.length; i++) {
-                     if (rawParameterTypes[i] instanceof Class) {
-                        parameterClasses[i] = (Class<?>) rawParameterTypes[i];
-                    } else if (rawParameterTypes[i] instanceof String) {
-                        try {
-                            parameterClasses[i] = XposedHelpers.findClass((String) rawParameterTypes[i], clazz.getClassLoader());
-                        } catch (XposedHelpers.ClassNotFoundError e) {
-                            LoggingHelper.warning(TAG, "Could not find class for constructor parameter type string: " + rawParameterTypes[i]);
-                            return null;
-                        }
-                    } else {
-                        LoggingHelper.warning(TAG, "Unsupported constructor parameter type object: " + rawParameterTypes[i]);
-                        return null;
-                    }
-                }
-            }
-            return XposedHelpers.findConstructorExact(clazz, parameterClasses);
-        } catch (Throwable t) {
-            log("Error finding constructor (object params) in class " + clazz.getName() + ": " + t.getMessage());
+            return XposedHelpers.findConstructorExact(clazz, rawParameterTypes);
+        } catch (NoSuchMethodError e) {
+            log("IPermissionOverrideService: Constructor (with objects) not found for class " + clazz.getName());
             return null;
         }
     }
 
     @Override
     public Object getFieldValue(Object obj, String className, String fieldName, ClassLoader classLoader) {
+        // Implementation for the interface
         try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
+            Class<?> targetClass = null;
+            if (obj != null) {
+                targetClass = obj.getClass();
+            } else if (className != null) {
+                targetClass = XposedHelpers.findClass(className, classLoader);
+            } else {
+                 log("IPermissionOverrideService:getFieldValue - Both object and class name are null.");
                 return null;
             }
-            
-            Field field = clazz.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return field.get(obj);
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                return XposedHelpers.getObjectField(obj, fieldName);
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to get field value: " + fieldName, e);
-                return null;
-            }
+            return XposedHelpers.getObjectField(obj, fieldName);
+        } catch (XposedHelpers.ClassNotFoundError e) {
+            log("IPermissionOverrideService: Class not found for getFieldValue: " + className);
+            return null;
+        } catch (NoSuchFieldError e) {
+            log("IPermissionOverrideService: Field not found for getFieldValue: " + fieldName);
+            return null;
         }
     }
 
     @Override
     public boolean setFieldValue(Object obj, String className, String fieldName, Object value, ClassLoader classLoader) {
-        try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
+        // Implementation for the interface
+         try {
+            Class<?> targetClass = null;
+            if (obj != null) {
+                targetClass = obj.getClass();
+            } else if (className != null) {
+                targetClass = XposedHelpers.findClass(className, classLoader);
+            } else {
+                log("IPermissionOverrideService:setFieldValue - Both object and class name are null.");
                 return false;
             }
-            
-            Field field = clazz.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            field.set(obj, value);
+            XposedHelpers.setObjectField(obj, fieldName, value);
             return true;
-        } catch (Throwable t) {
-            // Try with more aggressive approach
-            try {
-                XposedHelpers.setObjectField(obj, fieldName, value);
-                return true;
-            } catch (Throwable e) {
-                LoggingHelper.error(TAG, "Failed to set field value: " + fieldName, e);
-                return false;
-            }
+        } catch (XposedHelpers.ClassNotFoundError e) {
+            log("IPermissionOverrideService: Class not found for setFieldValue: " + className);
+            return false;
+        } catch (NoSuchFieldError e) {
+            log("IPermissionOverrideService: Field not found for setFieldValue: " + fieldName);
+            return false;
         }
     }
 
     @Override
     public Object createInstance(String className, ClassLoader classLoader, Object... constructorParams) {
+        // Implementation for the interface
         try {
-            Class<?> clazz = findClass(className, classLoader);
-            if (clazz == null) {
-                return null;
-            }
-            
-            if (constructorParams == null || constructorParams.length == 0) {
-                // Use default constructor
-                Constructor<?> constructor = clazz.getDeclaredConstructor();
-                constructor.setAccessible(true);
-                return constructor.newInstance();
-            } else {
-                // Use XposedHelpers for constructor access
-                return XposedHelpers.newInstance(clazz, constructorParams);
-            }
-        } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to create instance: " + className, t);
+            Class<?> clazz = XposedHelpers.findClass(className, classLoader);
+            return XposedHelpers.newInstance(clazz, constructorParams);
+        } catch (XposedHelpers.ClassNotFoundError e) {
+            log("IPermissionOverrideService: Class not found for createInstance: " + className);
+            return null;
+        } catch (Throwable t) { // newInstance can throw various things
+            log("IPermissionOverrideService: Error creating instance of " + className + ": " + t.getMessage());
             return null;
         }
     }
 
     @Override
     public Object invokeMethod(Object obj, String className, String methodName, ClassLoader classLoader, Object... params) {
+        // Implementation for the interface
         try {
-            Class<?> clazz;
+            Class<?> targetClass = null;
             if (obj != null) {
-                clazz = obj.getClass();
+                targetClass = obj.getClass();
+            } else if (className != null) {
+                targetClass = XposedHelpers.findClass(className, classLoader);
             } else {
-                clazz = findClass(className, classLoader);
-                if (clazz == null) {
-                    return null;
-                }
+                 log("IPermissionOverrideService:invokeMethod - Both object and class name are null.");
+                return null;
             }
-            
-            // Use XposedHelpers for method invocation
             return XposedHelpers.callMethod(obj, methodName, params);
-        } catch (Throwable t) {
-            LoggingHelper.error(TAG, "Failed to invoke method: " + methodName, t);
+        } catch (XposedHelpers.ClassNotFoundError e) {
+            log("IPermissionOverrideService: Class not found for invokeMethod: " + className);
             return null;
+        } catch (Throwable t) { // callMethod can throw various things
+             log("IPermissionOverrideService: Error invoking method " + methodName + ": " + t.getMessage());
+            return null;
+        }
+    }
+
+    private void connectToService(XC_LoadPackage.LoadPackageParam lpparam) {
+        // This method should run early, perhaps from handleLoadPackage or a similar hook point
+        // For system_server ("android" package), we need to find the right context.
+        Context systemContext = (Context) XposedHelpers.callStaticMethod(
+                XposedHelpers.findClass("android.app.ActivityThread", lpparam.classLoader),
+                "getSystemContext");
+
+        if (systemContext != null) {
+            Intent intent = new Intent();
+            intent.setComponent(new ComponentName("com.wobbz.permissionoverride", "com.wobbz.permissionoverride.PermissionOverrideService"));
+            systemContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
+            XposedInterface.Utils.log(TAG + ": Attempting to bind to PermissionOverrideService from system_server.");
+        } else {
+            XposedInterface.Utils.log(TAG + ": Could not get system context to bind service.");
         }
     }
 } 

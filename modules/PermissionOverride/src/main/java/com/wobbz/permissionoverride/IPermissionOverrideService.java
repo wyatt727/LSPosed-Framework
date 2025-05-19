@@ -104,4 +104,22 @@ public interface IPermissionOverrideService {
      *         Returns null if the package or permission is invalid or an error occurs.
      */
     Integer checkPermissionOverrideStatus(String packageName, String permission);
+    
+    /**
+     * Checks if a permission is forced to be granted for a specific application.
+     *
+     * @param packageName The package name of the application.
+     * @param permission The permission to check.
+     * @return true if the permission is forced to be granted, false otherwise.
+     */
+    boolean P_isAppPermissionForced(String packageName, String permission);
+    
+    /**
+     * Checks if a permission is suppressed (forced to be denied) for a specific application.
+     *
+     * @param packageName The package name of the application.
+     * @param permission The permission to check.
+     * @return true if the permission is suppressed, false otherwise.
+     */
+    boolean P_isAppPermissionSuppressed(String packageName, String permission);
 } 

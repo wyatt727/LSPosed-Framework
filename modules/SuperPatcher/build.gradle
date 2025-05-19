@@ -1,11 +1,17 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion rootProject.ext.targetSdkVersion
+    namespace 'com.wobbz.superpatcher'
+    compileSdkVersion rootProject.ext.compileSdk
 
     defaultConfig {
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion rootProject.ext.minSdk
+        targetSdkVersion rootProject.ext.targetSdk
+    }
+
+    compileOptions {
+        sourceCompatibility rootProject.ext.javaVersion
+        targetCompatibility rootProject.ext.javaVersion
     }
 
     buildTypes {
@@ -18,5 +24,5 @@ android {
 
 dependencies {
     implementation project(':framework')
-    compileOnly 'de.robv.android.xposed:api:82'
+    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
 } 

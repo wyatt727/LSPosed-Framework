@@ -1,17 +1,17 @@
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.wobbz.networkguard' // Changed from intentmaster
-    compileSdkVersion rootProject.ext.compileSdkVersion
+    namespace 'com.wobbz.networkguard'
+    compileSdkVersion rootProject.ext.compileSdk
     
     defaultConfig {
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion rootProject.ext.minSdk
+        targetSdkVersion rootProject.ext.targetSdk
     }
     
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11 // Match IntentMaster
-        targetCompatibility JavaVersion.VERSION_11 // Match IntentMaster
+        sourceCompatibility rootProject.ext.javaVersion
+        targetCompatibility rootProject.ext.javaVersion
     }
 }
 
