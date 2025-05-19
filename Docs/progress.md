@@ -2,6 +2,7 @@
 
   * [ ] Create Git repository (e.g. `git init`)
   * [ ] Add a `.gitignore` tailored for Android/Gradle projects
+  * [ ] Set up GitHub Actions workflow for CI/CD
 
 * [ ] **Define Root Project Configuration**
 
@@ -10,6 +11,7 @@
 
     * [ ] Declare common version properties: Xposed API version, `minSdk`, `targetSdk`, Java compatibility
     * [ ] Configure repositories (Maven Central, Google)
+    * [ ] Set up annotation processing
 
 * [ ] **Create Framework Module**
 
@@ -17,101 +19,129 @@
   * [ ] Add `framework/build.gradle`
 
     * [ ] Apply `com.android.library` plugin
-    * [ ] Apply `compileSdkVersion` and `defaultConfig` using root ext properties
-    * [ ] Enable Java 1.8 compatibility
-    * [ ] Add `compileOnly "io.github.libxposed:api:<version>"` dependency
-    * [ ] Include any shared helper libraries if needed
-  * [ ] Create `framework/src/main/java/.../IModulePlugin.java`
-
-    * [ ] Define `initZygote(StartupParam)` and `handleLoadPackage(LoadPackageParam)` methods
-  * [ ] Create `framework/src/main/java/.../PluginManager.java`
-
-    * [ ] Implement logic to discover and instantiate all plugin classes from descriptors
-    * [ ] Provide `initZygote` and `handleLoadPackage` dispatch methods
-  * [ ] Create resource templates in `framework/src/main/resources/META-INF/xposed/`
-
-    * [ ] `java_init.list.tpl` (placeholder for entry classes)
-    * [ ] `scope.list.tpl` (placeholder for per-module scopes)
-    * [ ] `module.prop.tpl` (placeholder for combined metadata)
+    * [ ] Configure annotation processor
+    * [ ] Set up hot-reload development server
+    * [ ] Configure remote update client
+    * [ ] Add dependencies for UI generation
+  * [ ] Create annotation classes
+    * [ ] `@XposedPlugin` for module metadata
+    * [ ] `@HotReloadable` for development mode
+  * [ ] Create core interfaces
+    * [ ] `IModulePlugin` with lifecycle methods
+    * [ ] `IHotReloadable` for development support
+  * [ ] Implement framework components
+    * [ ] Annotation processor for metadata generation
+    * [ ] Hot-reload development server
+    * [ ] Settings UI generator
+    * [ ] Remote update client
+    * [ ] Resource overlay packager
   * [ ] Add ProGuard/R8 rules under `framework/proguard-rules.pro` to keep plugin classes intact
 
-* [ ] **Set Up Module Descriptor Processing**
+* [ ] **Set Up Module Discovery**
 
-  * [ ] Add a Gradle task in `framework/build.gradle` to scan all `modules/*/descriptor.yaml` files
-  * [ ] Parse each YAML to extract:
+  * [ ] Create annotation processor
+    * [ ] Process `@XposedPlugin` annotations
+    * [ ] Generate LSPosed metadata files
+    * [ ] Validate module configuration
+  * [ ] Implement hot-reload support
+    * [ ] Development server setup
+    * [ ] Code injection mechanism
+    * [ ] Change detection
+  * [ ] Add dependency management
+    * [ ] Parse `module-info.json`
+    * [ ] Validate version constraints
+    * [ ] Check for conflicts
 
-    * [ ] `id`, `name`, `description` (for module.prop)
-    * [ ] `entry_classes` (for java\_init.list)
-    * [ ] `scope` entries (for scope.list)
-  * [ ] Generate merged files in `build/generated/META-INF/xposed/` from the templates
+* [ ] **Implement Settings UI Generation**
 
-* [ ] **Generate Framework Entry Class**
+  * [ ] Create JSON schema parser
+  * [ ] Generate LSPosed Manager UI
+  * [ ] Handle settings persistence
+  * [ ] Support i18n resources
 
-  * [ ] Create a Gradle task to compile a generated Java class (e.g. `FrameworkEntry.java`) under `build/generated/src/`
+* [ ] **Set Up Remote Updates**
 
-    * [ ] Implements `IXposedHookZygoteInit` and `IXposedHookLoadPackage`
-    * [ ] Delegates calls to `PluginManager`
+  * [ ] Implement CDN client
+  * [ ] Add signature verification
+  * [ ] Support delta updates
+  * [ ] Handle background updates
 
-* [ ] **Configure Packaging**
+* [ ] **Resource Overlay Support**
 
-  * [ ] Ensure `android.defaultConfig` in framework includes no `applicationId` (library mode)
-  * [ ] Confirm that the merged `META-INF/xposed` folder is included in the final APK
-  * [ ] Add `assembleRelease` configuration to produce an installable APK
+  * [ ] Implement RRO packaging
+  * [ ] Handle overlay installation
+  * [ ] Manage overlay priorities
+  * [ ] Support runtime updates
 
-* [ ] **Create Feature Modules Skeleton**
+* [ ] **Development Tools**
 
-  * [ ] For each new feature, under `modules/FeatureName/` directory:
+  * [ ] Create IDE integration
+  * [ ] Add debugging utilities
+  * [ ] Implement logging system
+  * [ ] Add performance monitoring
 
-    * [ ] Create `build.gradle`
+* [ ] **Analytics & Monitoring**
 
-      * [ ] Apply `com.android.library`
-      * [ ] Declare `implementation project(":framework")`
-      * [ ] Configure any additional dependencies
-    * [ ] Create `descriptor.yaml` with fields:
+  * [ ] Set up performance tracking
+  * [ ] Implement crash reporting
+  * [ ] Add usage analytics
+  * [ ] Create monitoring dashboard
 
-      * `id`
-      * `name`
-      * `description`
-      * `entry_classes` (list of plugin entry points)
-      * `scope` (list of package filters)
-    * [ ] Under `src/main/java/...`, create `FeatureNameModule.java`
+* [ ] **Create Example Modules**
 
-      * [ ] Implement `IModulePlugin`
-      * [ ] Provide no-op stubs for `initZygote` and `handleLoadPackage`
+  * [ ] Basic module with hot-reload
+  * [ ] Module with settings UI
+  * [ ] Module with resource overlays
+  * [ ] Module with dependencies
 
-* [ ] **Link All Modules in Settings**
+* [ ] **Documentation**
 
-  * [ ] Verify that `settings.gradle` picks up each `modules/*` folder as a project
-  * [ ] Confirm each module appears under Gradle’s project tree
+  * [ ] API reference
+  * [ ] Migration guide
+  * [ ] Best practices
+  * [ ] Development workflow
+  * [ ] Performance guide
+  * [ ] Security guidelines
 
-* [ ] **Integrate Common Utilities**
+* [ ] **Testing & Quality**
 
-  * [ ] In `framework/src/main/java/.../util/`, implement:
+  * [ ] Unit tests for core components
+  * [ ] Integration tests
+  * [ ] Performance benchmarks
+  * [ ] Security audit
+  * [ ] Compatibility testing
 
-    * [ ] Logging helper (wrapping `XposedBridge.log`)
-    * [ ] Reflection helper methods for safe hook installation
-    * [ ] Error handling wrappers to catch and log exceptions in hooks
+* [ ] **Release Preparation**
 
-* [ ] **Finalize CI Build Configuration**
+  * [ ] Version management
+  * [ ] Changelog generation
+  * [ ] Release automation
+  * [ ] Distribution setup
 
-  * [ ] Create a CI pipeline (e.g. GitHub Actions):
+* [ ] **Marketplace Integration**
 
-    * [ ] Checkout code
-    * [ ] Install required JDK and Android SDK components
-    * [ ] Run `./gradlew clean assembleRelease`
-    * [ ] Archive the resulting APK artifact
+  * [ ] Define API specification
+  * [ ] Implement client library
+  * [ ] Add module validation
+  * [ ] Set up distribution flow
 
-* [ ] **Documentation & Developer Guide**
+* [ ] **Security Implementation**
 
-  * [ ] Write a `README.md` at repository root covering:
+  * [ ] Implement signing system
+  * [ ] Add integrity checks
+  * [ ] Secure storage handling
+  * [ ] Access control system
 
-    * Project overview and purpose
-    * Directory structure explanation
-    * Steps to add a new feature module
-    * How to build and install the combined APK
-  * [ ] Include code comments in `IModulePlugin`, `PluginManager`, and build scripts explaining dynamic generation
+* [ ] **Performance Optimization**
 
-* [ ] **Versioning & Release Prep**
+  * [ ] Memory usage optimization
+  * [ ] Battery impact reduction
+  * [ ] Startup time improvement
+  * [ ] Hook performance tuning
 
-  * [ ] Define semantic versioning strategy in `module.prop.tpl`
-  * [ ] Add a `CHANGELOG.md` template for documenting updates
+* [ ] **Final Steps**
+
+  * [ ] Complete documentation
+  * [ ] Final security review
+  * [ ] Performance validation
+  * [ ] Release preparation

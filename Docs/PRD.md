@@ -3,7 +3,7 @@
 **Project:** LSPosed Modular Framework
 **Author:** \[Your Name]
 **Date:** May 19, 2025
-**Version:** 2.0
+**Version:** 2.1
 
 ---
 
@@ -13,19 +13,20 @@
 Define and document requirements for a modern, annotation-driven LSPosed module framework that supports hot-reloading, remote updates, and auto-generated settings UI.
 
 **1.2 Background**
-Traditional LSPosed module development requires manual descriptor files, lacks dependency management, and needs reboots for testing. This project modernizes the development workflow with annotations, hot-reloading, and automated UI generation.
+Traditional LSPosed module development requires manual descriptor files, lacks dependency management, and needs reboots for testing. This project modernizes the development workflow with annotations, hot-reloading, and automated UI generation, while providing robust dependency management and remote update capabilities.
 
 ---
 
 ## 2. Objectives and Goals
 
+* Replace YAML descriptors with Java annotations for compile-time validation
 * Enable rapid module development with hot-reload capability
-* Eliminate manual descriptor files through annotation processing
-* Provide automated dependency management and conflict detection
 * Generate settings UI automatically from JSON schemas
-* Support remote module updates via CDN
+* Provide automated dependency management and conflict detection
+* Support remote module updates via CDN with signature verification
 * Package resource overlays without separate APKs
 * Support Android API levels 21 through 35 (inclusive)
+* Provide development tools and IDE integration
 
 ---
 
@@ -33,7 +34,7 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 
 * **Primary:** Mobile app developers, module authors
 * **Secondary:** End users, LSPosed Manager maintainers
-* **Tertiary:** Security researchers, QA engineers
+* **Tertiary:** Security researchers, QA engineers, module marketplace operators
 
 ---
 
@@ -45,16 +46,20 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * Hot-reload development server
 * Settings UI generation system
 * Dependency resolution engine
-* Remote update client
+* Remote update client with signature verification
 * Resource overlay packaging
 * Development tools and IDE integration
+* Performance monitoring and analytics
+* Crash reporting system
+* Module marketplace integration API
 
 **Out of Scope**
 
 * LSPosed Manager modifications
 * Custom update server implementation
-* Module marketplace
+* Module marketplace frontend
 * Signing server infrastructure
+* Custom IDE plugins
 
 ---
 
@@ -64,6 +69,7 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * Developers have basic knowledge of Java annotations
 * Internet connectivity for remote updates
 * LSPosed Manager supports external settings UI
+* Developers use Android Studio 2023.1+
 
 ---
 
@@ -71,13 +77,16 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 
 | ID    | Title                      | Description                                                                                | Priority |
 |-------|---------------------------|--------------------------------------------------------------------------------------------|----------|
-| FR-01 | Annotation Processing     | Convert `@XposedPlugin` annotations into required LSPosed metadata files                   | High     |
+| FR-01 | Annotation Processing     | Convert `@XposedPlugin` and `@HotReloadable` annotations into required metadata            | High     |
 | FR-02 | Hot-Reload Server        | Enable live code updates without device reboot                                            | High     |
 | FR-03 | Settings Generation      | Create LSPosed Manager UI from JSON schema                                                | High     |
-| FR-04 | Dependency Resolution    | Validate and resolve module dependencies at build time                                    | Medium   |
-| FR-05 | Remote Updates          | Fetch and install module updates from CDN                                                 | Medium   |
+| FR-04 | Dependency Resolution    | Validate and resolve module dependencies at build time                                    | High     |
+| FR-05 | Remote Updates          | Fetch and install signed module updates from CDN                                          | High     |
 | FR-06 | Resource Overlays       | Package and install RRO overlays automatically                                            | Medium   |
-| FR-07 | Development Tools       | Provide IDE plugins and debugging utilities                                               | Low      |
+| FR-07 | Development Tools       | Provide IDE integration and debugging utilities                                           | Medium   |
+| FR-08 | Performance Monitoring  | Track hook performance and resource usage                                                 | Medium   |
+| FR-09 | Analytics Integration   | Collect anonymous usage data and crash reports                                            | Low      |
+| FR-10 | Marketplace API         | Enable integration with module distribution platforms                                      | Low      |
 
 ---
 
@@ -90,6 +99,9 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 | NFR-03 | Reliability    | 99.9% success rate for hot-reload operations                                           | 99.9%    |
 | NFR-04 | Compatibility  | Support all LSPosed versions from 1.0 onwards                                          | All      |
 | NFR-05 | Network Usage  | Minimize update bandwidth with delta downloads                                         | Optimal  |
+| NFR-06 | Memory Usage   | Keep framework overhead under 10MB                                                     | ≤10MB    |
+| NFR-07 | Battery Impact | Additional battery drain from framework < 1%                                           | ≤1%      |
+| NFR-08 | Startup Time   | Framework initialization within 500ms                                                  | ≤500ms   |
 
 ---
 
@@ -97,10 +109,17 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 
 1. **Development Workflow**
    ```java
-   @XposedPlugin(...)
+   @XposedPlugin(
+     id = "com.example.feature",
+     name = "Feature Name",
+     scope = {"com.android.systemui"}
+   )
    @HotReloadable
    public class DevModule implements IModulePlugin {
-     // Live code updates without rebooting
+     @Override
+     public void onHotReload() {
+       // Live code updates without rebooting
+     }
    }
    ```
 
@@ -108,7 +127,18 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
    ```json
    {
      "fields": [
-       {"key": "enabled", "type": "boolean"}
+       {
+         "key": "enabled",
+         "type": "boolean",
+         "label": "Enable Feature",
+         "defaultValue": true
+       },
+       {
+         "key": "debugLevel",
+         "type": "choice",
+         "label": "Debug Level",
+         "options": ["info", "debug", "verbose"]
+       }
      ]
    }
    ```
@@ -118,8 +148,23 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
    {
      "dependsOn": {
        "com.core": ">=1.0.0"
+     },
+     "conflictsWith": [
+       "com.legacy.module"
+     ],
+     "provides": {
+       "featureType": "1.0.0"
      }
    }
+   ```
+
+4. **Resource Overlays**
+   ```
+   res/overlay/com.android.systemui/
+     layout/
+       status_bar.xml
+     values/
+       colors.xml
    ```
 
 ---
@@ -132,6 +177,9 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * Dependencies resolve without conflicts
 * Remote updates install successfully
 * Resource overlays apply properly
+* Performance metrics meet targets
+* Analytics data is collected anonymously
+* Marketplace API functions correctly
 
 ---
 
@@ -140,20 +188,29 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 1. **Core Framework** (Week 1-2)
    * Annotation processor
    * Build system integration
+   * Basic IDE support
 
 2. **Hot-Reload System** (Week 3-4)
    * Development server
    * Live code injection
+   * Change detection
 
 3. **Settings & UI** (Week 5-6)
    * Schema processor
    * UI generation
+   * Settings persistence
 
-4. **Updates & Resources** (Week 7-8)
-   * CDN client
+4. **Dependencies & Updates** (Week 7-8)
+   * Dependency resolver
+   * Remote update client
+   * Signature verification
+
+5. **Resource & Performance** (Week 9-10)
    * Overlay packaging
+   * Performance monitoring
+   * Analytics integration
 
-5. **Testing & Release** (Week 9-10)
+6. **Testing & Release** (Week 11-12)
    * Integration testing
    * Documentation
    * Initial release
@@ -166,6 +223,8 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * Android Gradle Plugin 8.1.0+
 * Java 8+
 * Android Studio 2023.1+
+* Ed25519 signing tools
+* CDN provider account
 
 ---
 
@@ -176,6 +235,9 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 | Hot-reload instability       | Medium     | High   | Extensive testing, fallback mechanism                       |
 | Update server downtime       | Low        | Medium | Multiple CDN regions, offline cache                         |
 | Incompatible LSPosed versions| Medium     | High   | Version detection, graceful degradation                     |
+| Memory leaks                 | Medium     | High   | Automated memory monitoring, leak detection                 |
+| Security vulnerabilities     | Low        | High   | Code signing, security audits                              |
+| Performance degradation      | Medium     | Medium | Performance monitoring, optimization guidelines             |
 
 ---
 
@@ -186,6 +248,10 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * 95% test coverage
 * <1% hot-reload failures
 * 100% dependency resolution accuracy
+* <10MB memory footprint
+* <1% battery impact
+* <500ms startup time
+* 99.9% update success rate
 
 ---
 
@@ -196,6 +262,11 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * A/B testing support
 * Analytics dashboard
 * Module marketplace integration
+* Custom IDE plugin
+* Multi-module debugging
+* Remote debugging support
+* Automated testing framework
+* CI/CD pipeline templates
 
 ---
 
@@ -206,5 +277,36 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 * Best practices
 * Example modules
 * Troubleshooting guide
+* Performance optimization guide
+* Security guidelines
+* Development workflow guide
+* IDE setup guide
+* Deployment guide
+
+---
+
+## 16. Monitoring & Analytics
+
+* Hook performance metrics
+* Memory usage tracking
+* Battery impact monitoring
+* Update success rates
+* Feature usage statistics
+* Error reporting
+* User engagement metrics
+* Device compatibility data
+
+---
+
+## 17. Security Requirements
+
+* Signed module updates
+* Secure dependency resolution
+* Protected settings storage
+* Safe hot-reload mechanism
+* Resource integrity verification
+* Analytics data anonymization
+* Access control for development tools
+* Secure crash reporting
 
 ---
