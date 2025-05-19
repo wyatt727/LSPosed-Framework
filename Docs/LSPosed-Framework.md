@@ -1,31 +1,34 @@
-Below is a proposed “LSPosed Module Framework” architecture—a reusable skeleton you can clone once and then drop in new feature‐modules, share common code, and release them all together. It’s broken down into high-level components, directory layout, build configuration, runtime APIs, and best-practice patterns.
+# LSPosed Module Framework Architecture
+
+A modern, annotation-driven framework for building and managing LSPosed modules with hot-reload support, remote updates, and auto-generated settings UI.
 
 ---
 
 ## 1. High-Level Overview
 
 1. **Host Framework**
-
-   * A single Android “library” project that bundles:
-
+   * A single Android "library" project that bundles:
+     * Annotation processors for plugin discovery
+     * Hot-reload development server
+     * Settings UI generation
+     * Remote update system
      * Shared utilities (logging, reflection helpers, config loaders)
-     * Module registration & lifecycle orchestration
-     * Common Gradle settings (compile-only Xposed API, Java/Kotlin versions, ProGuard rules)
 
 2. **Feature Modules**
-
-   * Each “feature” (e.g. DebugAll, AdBlocker, NetworkLogger) lives as a sub-module under `modules/`
-   * They implement a simple plugin interface and include only their hook code + any resources
+   * Each feature is a self-contained module under `modules/`
+   * Uses annotations instead of YAML for metadata
+   * Supports hot-reloading during development
+   * Can declare dependencies and conflicts
 
 3. **Dynamic Discovery**
-
-   * At build time, the Host Framework merges all feature modules into one final APK
-   * It auto-generates the `META-INF/xposed/java_init.list` by scanning feature descriptors
+   * Annotation processor generates all required metadata
+   * Hot-reload capability for rapid development
+   * Remote update support via CDN
 
 4. **Centralized Configuration**
-
-   * One place to define minSdk, targetSdk, Xposed API version, dependency versions
-   * Shared `module.prop` template that each feature can override (ID, name, description)
+   * Unified settings UI generation
+   * Dependency resolution at build time
+   * Resource overlay packaging
 
 ---
 
@@ -33,211 +36,220 @@ Below is a proposed “LSPosed Module Framework” architecture—a reusable ske
 
 ```
 /LSPosedFramework
-├── build.gradle                // root Gradle: common versions, repository settings
-├── settings.gradle             // includes :framework and all :modules:*
+├── build.gradle                // root Gradle config
+├── settings.gradle             // module discovery
 │
-├── framework/                  // Host Framework library
-│   ├── build.gradle            // applies com.android.library, compileOnly Xposed API
+├── framework/                  // Host Framework
+│   ├── build.gradle           // annotation processor setup
 │   ├── src/
-│   │   ├── main/java/…         // Shared utility classes and the plugin manager
-│   │   ├── main/resources/     // META-INF/xposed templates
-│   │   │   ├── java_init.list.tpl
-│   │   │   └── module.prop.tpl
-│   │   └── proguard-rules.pro
+│   │   ├── main/java/…        // Core framework code
+│   │   ├── processor/         // Annotation processors
+│   │   └── hot-reload/        // Development server
 │
-└── modules/                    // Folder containing all feature modules
-    ├── DebugAll/               // Example feature
-    │   ├── build.gradle        // minimal, declares plugin dependencies
-    │   ├── src/main/java/…     // DebugAllModule.java
-    │   └── descriptor.yaml     // declarative metadata (id, name, description, scope)
-    │
-    ├── AdBlocker/
-    │   ├── build.gradle
-    │   ├── src/main/java/…
-    │   └── descriptor.yaml
+└── modules/                    // Feature modules
+    ├── DebugAll/
+    │   ├── build.gradle       // hot-reload config
+    │   ├── src/main/java/…    // Annotated module code
+    │   ├── src/main/res/      // Optional resource overlays
+    │   ├── module-info.json   // Dependencies & conflicts
+    │   └── settings.json      // UI configuration
     │
     └── NetworkLogger/
         ├── build.gradle
         ├── src/main/java/…
-        └── descriptor.yaml
+        ├── module-info.json
+        └── settings.json
 ```
 
 ---
 
-## 3. Build Configuration
+## 3. Annotation-Driven Development
 
-* **Root `build.gradle`**
-
-  * Define versions once:
-
-    ```groovy
-    ext {
-      xposedApiVersion = '0.4.1'
-      minSdk = 21
-      targetSdk = 34
-      javaVersion = JavaVersion.VERSION_1_8
-    }
-    ```
-  * Common repositories and plugin versions.
-
-* **Framework `build.gradle`**
-
-  ```groovy
-  apply plugin: 'com.android.library'
-
-  android {
-    compileSdkVersion rootProject.ext.targetSdk
-    defaultConfig {
-      minSdkVersion rootProject.ext.minSdk
-      targetSdkVersion rootProject.ext.targetSdk
-      compileOptions {
-        sourceCompatibility rootProject.ext.javaVersion
-        targetCompatibility rootProject.ext.javaVersion
-      }
-    }
-  }
-
-  dependencies {
-    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
-  }
-  ```
-
-* **Module `build.gradle`**
-
-  ```groovy
-  apply plugin: 'com.android.library'
-
-  android {
-    // inherits compileSdk/minSdk from framework via API
-  }
-
-  dependencies {
-    implementation project(':framework')
-    // no need to declare Xposed API again
-  }
-
-  // Task to register descriptor into the framework’s resources
-  tasks.register('generateDescriptor') {
-    outputs.file("$buildDir/generated/descriptor/${project.name}.yaml")
-    doLast {
-      copy {
-        from 'descriptor.yaml'
-        into "$buildDir/generated/descriptor"
-        rename { "${project.name}.yaml" }
-      }
-    }
-  }
-  ```
-
-* **settings.gradle**
-
-  ```groovy
-  include ':framework'
-  fileTree('modules').eachDir { dir ->
-    include ":modules:${dir.name}"
-    project(":modules:${dir.name}").projectDir = dir
-  }
-  ```
-
----
-
-## 4. Module Descriptor (YAML)
-
-Each feature module declares its metadata in a simple `descriptor.yaml`:
-
-```yaml
-id: com.yourorg.DebugAll
-name: Debug-All
-description: Force-enable DEBUGGABLE on all apps
-entry_classes:
-  - com.yourorg.debugall.DebugAllModule
-scope:
-  - android       # any package-level filters
-  - com.android.systemui  # include system process if needed
-```
-
-The Framework’s build script parses these YAML files, merges them, and populates:
-
-* `META-INF/xposed/java_init.list`
-* `META-INF/xposed/scope.list`
-* A combined `module.prop`
-
----
-
-## 5. Plugin Interface & Lifecycle
-
-### 5.1 IModulePlugin
+Replace YAML descriptors with Java annotations:
 
 ```java
-public interface IModulePlugin {
-    /** Called at Zygote init. */
-    void initZygote(IZygoteInit.StartupParam param) throws Throwable;
-    /** Called on each app load. */
-    void handleLoadPackage(LoadPackageParam param) throws Throwable;
-}
-```
+@XposedPlugin(
+  id = "com.yourorg.DebugAll",
+  name = "Debug-All",
+  version = "1.0.0",
+  scope = {
+    "android",
+    "com.android.systemui"
+  }
+)
+@HotReloadable
+public class DebugAllModule implements IModulePlugin {
+  @Override
+  public void initZygote(StartupParam param) {
+    // Initialize
+  }
 
-### 5.2 PluginManager
+  @Override
+  public void handleLoadPackage(LoadPackageParam param) {
+    // Hook logic
+  }
 
-In `framework/src/main/java`:
-
-```java
-public class PluginManager {
-    private static final List<IModulePlugin> plugins = new ArrayList<>();
-
-    /** Called once by the generated framework entry class during Zygote init */
-    public static void initZygote(StartupParam param) {
-        for (IModulePlugin plugin : loadPlugins()) {
-            plugin.initZygote(param);
-        }
-    }
-
-    /** Called once per loaded package */
-    public static void handleLoadPackage(LoadPackageParam param) {
-        for (IModulePlugin plugin : loadPlugins()) {
-            plugin.handleLoadPackage(param);
-        }
-    }
-
-    /** Reflectively instantiate each entry class from descriptors */
-    private static List<IModulePlugin> loadPlugins() { … }
-}
-```
-
-The Framework’s own generated entry class simply delegates:
-
-```java
-public class FrameworkEntry implements IXposedHookZygoteInit, IXposedHookLoadPackage {
-    @Override public void initZygote(StartupParam param) {
-        PluginManager.initZygote(param);
-    }
-    @Override public void handleLoadPackage(LoadPackageParam param) {
-        PluginManager.handleLoadPackage(param);
-    }
+  @Override
+  public void onHotReload() {
+    // Cleanup and reinitialize
+  }
 }
 ```
 
 ---
 
-## 6. Adding a New Module
+## 4. Dependency Management
 
-1. **Create `modules/NewFeature/`** via copy-and-rename of an existing example.
-2. **Edit `descriptor.yaml`** with ID, name, and entry class.
-3. **Write your `NewFeatureModule.java`** implementing `IModulePlugin`.
-4. **Sync & Build**—the Host Framework’s Gradle logic will auto-discover your new module, include its entry in `java_init.list`, and bundle its code.
-5. **Install the single combined APK**—all features deploy at once.
+Define module relationships in `module-info.json`:
+
+```json
+{
+  "dependsOn": {
+    "com.yourorg.CoreUtils": ">=1.2.0",
+    "com.yourorg.CommonLib": "^2.0.0"
+  },
+  "conflictsWith": [
+    "com.otherorg.LegacyHooks"
+  ],
+  "provides": {
+    "debuggingCapability": "1.0.0"
+  }
+}
+```
+
+The framework validates these at build time:
+- Checks version constraints
+- Builds dependency graph
+- Detects conflicts
+- Auto-includes required modules
 
 ---
 
-## 7. Benefits of This Framework
+## 5. Settings UI Generation
 
-* **Single APK, Multiple Plugins**: One install for your entire suite of modules.
-* **Consistent Build Rules**: All modules share compile settings, Xposed API version, and ProGuard configs.
-* **Easy Onboarding**: To add a new hook, you only need a descriptor + one Java class—no copy-pasting of boilerplate.
-* **Selective Loading**: You can declare module scopes per feature, so heavy hooks only run where needed.
-* **Centralized Logging & Utilities**: Shared common code (reflection helpers, safe-execution wrappers) reduces duplication.
-* **CI/Automation-Friendly**: A single Gradle pipeline builds, tests, and releases your entire module set.
+Define UI in `settings.json`:
+
+```json
+{
+  "enabledByDefault": true,
+  "fields": [
+    {
+      "key": "verboseLogging",
+      "type": "boolean",
+      "label": "Verbose Logging",
+      "defaultValue": false
+    },
+    {
+      "key": "targetApps",
+      "type": "package_list",
+      "label": "Target Applications",
+      "description": "Select apps to apply hooks to"
+    }
+  ]
+}
+```
+
+Framework automatically:
+- Generates LSPosed Manager UI
+- Handles persistence
+- Provides typed access in code
 
 ---
 
-With this structure in place, your “LSPosed Module Framework” becomes a living repository of all your in-memory tweaks—easily extended, consistently configured, and neatly packaged.
+## 6. Hot-Reload Development
+
+Enable in `build.gradle`:
+
+```groovy
+lsposed {
+  enableHotReload = true
+  devServerPort = 8081
+}
+```
+
+Usage:
+1. Run `./gradlew runDevServer`
+2. Make changes to your module
+3. Changes apply instantly without reboot
+4. View logs in real-time
+
+---
+
+## 7. Remote Updates
+
+Configure in `update-config.json`:
+
+```json
+{
+  "updateSources": [
+    {
+      "name": "Official CDN",
+      "url": "https://cdn.yourorg.com/lsposed/modules",
+      "publicKey": "BASE64_ED25519_PUBLIC_KEY"
+    }
+  ],
+  "updateCheckInterval": 86400,
+  "autoUpdate": {
+    "enabled": true,
+    "onlyWhenIdle": true,
+    "requireWifi": true
+  }
+}
+```
+
+Features:
+- Signed module updates
+- Automatic background updates
+- Bandwidth-aware downloading
+- Version rollback support
+
+---
+
+## 8. Resource Overlays
+
+Place overlays in standard structure:
+
+```
+modules/YourFeature/
+  src/main/
+    res/
+      overlay/
+        com.android.systemui/
+          layout/
+            status_bar.xml
+          values/
+            colors.xml
+```
+
+Framework automatically:
+- Packages as RRO overlay
+- Handles installation
+- Manages versions
+
+---
+
+## 9. Adding a New Module
+
+1. Create module directory
+2. Add `@XposedPlugin` annotation
+3. Implement `IModulePlugin`
+4. Add `module-info.json` for dependencies
+5. Create `settings.json` if needed
+6. Add resource overlays if needed
+7. Enable hot-reload for development
+
+---
+
+## 10. Benefits
+
+* **Annotation-Driven**: No manual descriptor files
+* **Hot-Reload**: Rapid development cycle
+* **Auto-UI**: Generated settings screens
+* **Dependency Aware**: Version constraints and conflicts
+* **Remote Updates**: CDN-based module distribution
+* **Resource Support**: Built-in overlay packaging
+* **Type Safe**: Compile-time validation
+
+---
+
+This modern framework provides a complete solution for building, testing, and distributing LSPosed modules with minimal boilerplate and maximum developer productivity.

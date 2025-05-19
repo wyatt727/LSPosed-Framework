@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/yourorg/LSPosedFramework)](https://github.com/yourorg/LSPosedFramework/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> A **scalable**, **descriptor-driven**, and **Android 15-ready** host framework for all your LSPosed modules—bundle dozens of in-memory hooks into one cohesive APK.
+> A **modern**, **annotation-driven**, and **Android 15-ready** host framework for all your LSPosed modules—featuring hot-reload development, auto-generated UI, and seamless dependency management.
 
 ---
 
@@ -18,7 +18,7 @@
   - [Hook Implementation Patterns](#hook-implementation-patterns)  
 - [🔧 Best Practices](#-best-practices)  
   - [Android 15 Specific Adjustments](#android-15-specific-adjustments)  
-- [🛠️ Extension Workflow](#️-extension-workflow)  
+- [🛠️ Development Workflow](#️-development-workflow)  
 - [⚙️ Getting Started](#️-getting-started)  
   - [Prerequisites](#prerequisites)  
   - [Build & Installation](#build--installation)  
@@ -29,13 +29,15 @@
 
 ## ✨ Overview
 
-The **LSPosed Modular Framework** is a single, unified Android library that:
+The **LSPosed Modular Framework** is a modern, feature-rich Android library that:
 
-- Hosts **multiple LSPosed feature modules** in one APK  
-- Uses **declarative descriptors** (`descriptor.yaml`) to drive metadata and scope  
-- Automatically **generates** the required `META-INF/xposed/*` files at build time  
-- Supports **Android 15 (API 35)** with the latest libxposed/shim versions  
-- Provides **shared utilities**, **logging**, and **reflection helpers**  
+- Uses **Java annotations** (`@XposedPlugin`) for module metadata and discovery
+- Supports **hot-reload development** without device reboots
+- Provides **auto-generated settings UI** from JSON schemas
+- Manages **module dependencies** and version constraints
+- Handles **remote updates** via CDN with signature verification
+- Packages **resource overlays** automatically
+- Supports **Android 15 (API 35)** with the latest libxposed/shim versions
 
 Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compatible with any Android 14+ device.
 
@@ -43,12 +45,14 @@ Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compati
 
 ## ⭐ Features
 
-- 🎯 **Descriptor-Driven**: Define module ID, name, entry classes, and scope in YAML.  
-- 🧩 **Plugin Architecture**: Drop in new features without boilerplate—each lives under `modules/FeatureName`.  
-- ⚡ **Lean Hooks**: Reflective targets resolved once; minimal runtime overhead.  
-- 🔒 **Safe Execution**: All hook logic wrapped in try/catch to prevent app crashes.  
-- 🔄 **Dynamic Scope**: Limit hooks to specific packages or processes via `scope.list`.  
-- 📜 **Centralized Config**: Single `module.prop` and versioning for the entire suite.  
+- 🎯 **Annotation-Driven**: Replace YAML with `@XposedPlugin` for compile-time validation
+- 🔄 **Hot-Reload**: Develop and test changes without rebooting
+- 🎨 **Auto UI**: Generate LSPosed Manager settings from JSON schema
+- 📦 **Smart Dependencies**: Declare and validate module relationships
+- 🚀 **Remote Updates**: Secure, CDN-based module distribution
+- 🎭 **Resource Overlays**: Automatic RRO packaging and management
+- ⚡ **Lean Runtime**: Optimized hook resolution and caching
+- 🔒 **Safe Execution**: Comprehensive error handling and recovery
 
 ---
 
@@ -59,203 +63,236 @@ Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compati
 ```
 LSPosedFramework/
 ├── settings.gradle
-├── build.gradle      ← root ext { xposedApiVersion, minSdk, targetSdk, compileSdk, javaVersion }
+├── build.gradle      ← root ext { xposedApiVersion, minSdk, targetSdk, compileSdk }
 ├── framework/        ← core library
-│   ├── build.gradle
+│   ├── build.gradle  ← annotation processor setup
 │   ├── proguard-rules.pro
 │   └── src/
 │       ├── main/java/com/yourorg/framework/
-│       │   ├── IModulePlugin.java
-│       │   └── PluginManager.java
-│       └── main/resources/META-INF/xposed/
-│           ├── java_init.list.tpl
-│           ├── scope.list.tpl
-│           └── module.prop.tpl
+│       │   ├── annotations/     ← @XposedPlugin, @HotReloadable
+│       │   ├── ui/             ← Settings UI generation
+│       │   ├── updates/        ← Remote update client
+│       │   └── hot-reload/     ← Development server
+│       └── main/resources/
 └── modules/          ← feature sub-modules
     ├── DebugAll/
     │   ├── build.gradle
-    │   ├── descriptor.yaml
-    │   └── src/main/java/com/yourorg/debugall/DebugAllModule.java
+    │   ├── module-info.json    ← dependencies & conflicts
+    │   ├── settings.json       ← UI configuration
+    │   └── src/main/java/com/yourorg/debugall/
+    │       └── DebugAllModule.java  ← @XposedPlugin annotation
     └── AdBlocker/
         ├── build.gradle
-        ├── descriptor.yaml
-        └── src/…
-```
-
-- **settings.gradle** dynamically includes `:framework` and each `modules/*`.  
-- **Root build.gradle** defines common versions:  
-
-```groovy
-ext {
-  xposedApiVersion = '0.4.2'
-  minSdk           = 21
-  targetSdk        = 35
-  compileSdk       = 35
-  javaVersion      = JavaVersion.VERSION_1_8
-}
+        ├── module-info.json
+        └── src/...
 ```
 
 ### Module Metadata & Resources
 
-* **descriptor.yaml** (per feature):
+* **Annotation-Based Configuration**:
 
-```yaml
-id: com.yourorg.DebugAll
-name: Debug-All
-description: Force-enable DEBUGGABLE on all apps
-entry_classes:
-  - com.yourorg.debugall.DebugAllModule
-scope:
-  - com.android.systemui
-  - com.chrome.browser
+```java
+@XposedPlugin(
+  id = "com.yourorg.DebugAll",
+  name = "Debug-All",
+  description = "Force-enable DEBUGGABLE on all apps",
+  scope = {"com.android.systemui", "com.chrome.browser"}
+)
+@HotReloadable
+public class DebugAllModule implements IModulePlugin {
+  // Implementation
+}
 ```
 
-* At build time, the framework:
+* **Dependencies & Conflicts** (`module-info.json`):
 
-  1. Parses all `descriptor.yaml`
-  2. Merges into:
-     * `java_init.list`
-     * `scope.list`
-     * `module.prop`
+```json
+{
+  "dependsOn": {
+    "com.yourorg.CoreUtils": ">=1.2.0"
+  },
+  "conflictsWith": [
+    "com.otherorg.LegacyHooks"
+  ]
+}
+```
 
-* **Manifest** uses:
+* **Settings UI** (`settings.json`):
 
-```xml
-<application
-  android:label="@string/app_name"
-  android:description="@string/app_desc">
-  <!-- No legacy xposedmeta tags needed -->
-</application>
+```json
+{
+  "fields": [
+    {
+      "key": "debugLevel",
+      "type": "choice",
+      "label": "Debug Level",
+      "options": ["info", "debug", "verbose"]
+    }
+  ]
+}
 ```
 
 ### Hook Implementation Patterns
 
-1. **Minimal Impact**
-   * Resolve reflective lookups in `initZygote()`.
-   * Early return in `handleLoadPackage()` if outside feature scope.
+1. **Hot-Reload Support**
+```java
+@HotReloadable
+public class MyModule implements IModulePlugin {
+  @Override
+  public void onHotReload() {
+    // Cleanup and reinitialize hooks
+  }
+}
+```
 
-2. **Safe Execution**
-
+2. **Safe Execution & Logging**
 ```java
 try {
   // hook logic
 } catch (Throwable t) {
-  XposedBridge.log("[DebugAll] " + Log.getStackTraceString(t));
+  LoggingHelper.error("MyModule", "Hook failed", t);
 }
 ```
 
-3. **Shared Utilities**
-   * **LoggingHelper** for consistent, prefixed logs.
-   * **ReflectionHelper** for safe `findClass`/`findMethod`.
+3. **Resource Overlays**
+```
+res/overlay/com.android.systemui/
+  layout/
+    status_bar.xml
+  values/
+    colors.xml
+```
 
 ---
 
 ## 🔧 Best Practices
 
-* **Pin Versions**
-  * libxposed API → `0.4.2` for Android 15
-  * Android Gradle Plugin ≥ 8.1.0
+* **Development Workflow**
+  * Enable hot-reload in `build.gradle`
+  * Use `./gradlew runDevServer` for live updates
+  * Monitor changes via LoggingHelper
 
-* **Descriptor Validation**
-  * Gradle task fails the build if `descriptor.yaml` lacks `id` or `entry_classes`.
+* **Dependency Management**
+  * Declare version constraints in `module-info.json`
+  * Use semantic versioning
+  * Handle conflicts explicitly
 
-* **Structured Logging**
-  * Prefix: `[ModuleID|FeatureName]`
-  * Runtime verbosity toggle via `config.properties` in `META-INF/xposed/`
+* **Settings UI**
+  * Define UI schema in `settings.json`
+  * Use typed fields for validation
+  * Support i18n via resource strings
 
-* **Performance Awareness**
-  * Offload heavy work to background threads.
-  * Keep hooks lean to avoid polluting ART AOT profiles.
+* **Remote Updates**
+  * Sign updates with Ed25519
+  * Support delta downloads
+  * Handle background updates
 
-* **Thread Safety**
-  * Immutable plugin lists/config maps.
-  * Synchronize only when mutating shared state.
-
-* **ProGuard & Resources**
-
-```proguard
--keep class com.yourorg.** { *; }
-```
-
-* Avoid bundling large assets; load on demand.
+* **Resource Overlays**
+  * Follow Android RRO conventions
+  * Test on multiple Android versions
+  * Handle overlay conflicts
 
 ### Android 15 Specific Adjustments
 
-* **Hook Signatures** moved from `framework.jar` to `framework.art`—search both.
-* **Hidden-API Enforcement**—use LSPosed's built-in allowlist, not custom hacks.
-* **SELinux Contexts**—after overlays/bind-mounts, run:
-
-```bash
-chcon -R u:object_r:system_lib_file:s0 $MODDIR/system/lib64/…
-```
-
-* **Vendor Overlays**—prefer `overlayfs` over bind-mounts on `/vendor`.
-* **Scope Updates**—force-stop apps to clear ART caches after scope changes.
+* **Hook Signatures** moved from `framework.jar` to `framework.art`—search both
+* **Hidden-API Enforcement**—use LSPosed's built-in allowlist
+* **SELinux Contexts**—handle overlay permissions
+* **Vendor Overlays**—use `overlayfs` when possible
+* **Scope Updates**—manage ART cache invalidation
 
 ---
 
-## 🛠️ Extension Workflow
+## 🛠️ Development Workflow
 
-1. **Create Module Skeleton**
+1. **Create New Module**
 
 ```bash
-mkdir -p modules/NewFeature && cd modules/NewFeature
-touch build.gradle descriptor.yaml
+./gradlew createModule -PmoduleName=NewFeature
 ```
 
-2. **Define Descriptor**
-
-```yaml
-id: com.yourorg.NewFeature
-name: New Feature
-description: …
-entry_classes:
-  - com.yourorg.newfeature.NewFeatureModule
-scope:
-  - com.target.app
-```
-
-3. **Implement Plugin**
+2. **Add Annotations**
 
 ```java
+@XposedPlugin(
+  id = "com.yourorg.NewFeature",
+  name = "New Feature"
+)
+@HotReloadable
 public class NewFeatureModule implements IModulePlugin {
-  @Override
-  public void initZygote(StartParam sp) {
-    // cache reflection targets
-  }
-  @Override
-  public void handleLoadPackage(LoadPackageParam lp) {
-    if (!scope.contains(lp.packageName)) return;
-    try {
-      // hook logic
-    } catch (Throwable t) {
-      LoggingHelper.e("NewFeature", t);
-    }
+  // Implementation
+}
+```
+
+3. **Configure Dependencies**
+
+```json
+{
+  "dependsOn": {
+    "com.yourorg.CoreUtils": "^2.0.0"
   }
 }
 ```
 
-4. **Build & Install**
+4. **Define Settings UI**
 
-```bash
-./gradlew clean assembleRelease
-adb install -r framework/build/outputs/apk/release/app-release.apk
+```json
+{
+  "fields": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enable Feature"
+    }
+  ]
+}
 ```
 
-5. **Enable & Reboot**
-   * In LSPosed Manager → Modules → enable → select "All processes" or per-feature → reboot.
+5. **Development**
+```bash
+# Start hot-reload server
+./gradlew runDevServer
+
+# Watch for changes
+./gradlew watchModules
+```
+
+6. **Build & Deploy**
+```bash
+./gradlew assembleRelease
+./gradlew uploadToCDN  # For remote distribution
+```
+
+---
+
+## ⚙️ Getting Started
+
+### Prerequisites
+
+* Android Studio 2023.1+
+* JDK 8+
+* Android SDK (API 35)
+* LSPosed Framework 1.0+
+
+### Build & Installation
+
+1. Clone the repository
+2. Configure signing keys for remote updates
+3. Run `./gradlew assembleRelease`
+4. Install via LSPosed Manager
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork the repo
-2. Create your feature under `modules/`
-3. Follow the descriptor & plugin conventions
-4. Submit a PR—ensure your descriptor and code pass validation
+1. Fork the repository
+2. Create your feature branch
+3. Add tests and documentation
+4. Submit a pull request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ---
 
 ## 📄 License
 
-Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.

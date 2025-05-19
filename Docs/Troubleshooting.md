@@ -1,6 +1,6 @@
 # LSPosed Modular Framework — Troubleshooting Guide
 
-**Device Context:** OnePlus 12 (CPH2583) running OxygenOS 15.0 (Android 14), rooted via Magisk with Zygisk & LSPosed installed, plus Kali Nethunter chroot environment.
+**Device Context:** OnePlus 12 (CPH2583) running OxygenOS 15.0 (Android 14), rooted via Magisk with Zygisk & LSPosed installed, plus Kali Nethunter chroot environment.
 
 ---
 
@@ -11,7 +11,7 @@
 * **Symptom:** Build errors like `Unsupported major.minor version` or `Could not find com.android.tools.build:gradle`.
 * **Solution:**
 
-  * Ensure JDK 8 is on PATH (`java -version` should report 1.8.x).
+  * Ensure JDK 8 is on PATH (`java -version` should report 1.8.x).
   * Align Gradle plugin and Android Gradle Plugin versions in `build.gradle`.
   * In CI or local, install Android SDK build-tools matching `targetSdkVersion` (34).
 
@@ -25,7 +25,7 @@
 
 **Considerations:**
 
-* OnePlus 12’s development host may have multiple SDKs; use explicit `sdk.dir` in `local.properties`.
+* OnePlus 12's development host may have multiple SDKs; use explicit `sdk.dir` in `local.properties`.
 
 ---
 
@@ -33,7 +33,7 @@
 
 **Issue: Missing or malformed `META-INF/xposed/java_init.list`**
 
-* **Symptom:** LSPosed logs `no entry class found`, framework doesn’t load plugins.
+* **Symptom:** LSPosed logs `no entry class found`, framework doesn't load plugins.
 * **Solution:**
 
   * Confirm Gradle task scanned all `modules/*/descriptor.yaml`.
@@ -50,7 +50,7 @@
 
 **Considerations:**
 
-* OxygenOS’s packaging may strip unknown `META-INF` entries; test on-device via `adb shell pm path`.
+* OxygenOS's packaging may strip unknown `META-INF` entries; test on-device via `adb shell pm path`.
 
 ---
 
@@ -63,14 +63,14 @@
 
   * Wrap hook bodies in `try/catch` and log exceptions.
   * Verify correct method signatures against OxygenOS 15.0 AOSP source.
-  * Confirm plugin scope includes your test package or `android` (for system\_server hooks).
+  * Confirm plugin scope includes your test package or `android` (for system_server hooks).
 
 **Issue: Signature mismatches on Android 14**
 
 * **Symptom:** `NoSuchMethodError` in logs or silent failure.
 * **Solution:**
 
-  * Pull `frameworks/base` for Android 14; search for `generateApplicationInfo` and `getApplicationInfo`.
+  * Pull `frameworks/base` for Android 14; search for `generateApplicationInfo` and `getApplicationInfo`.
   * Adjust hook parameters in `IModulePlugin` implementations accordingly.
 
 **Considerations:**
@@ -99,7 +99,7 @@
 
 **Considerations:**
 
-* The OnePlus 12’s performance optimizations (Trinity Engine) can restart background services; ensure LSPosed Manager remains active.
+* The OnePlus 12's performance optimizations (Trinity Engine) can restart background services; ensure LSPosed Manager remains active.
 
 ---
 
@@ -115,15 +115,15 @@
 
 **Issue: Zygisk injection not occurring in `system_server`**
 
-* **Symptom:** Zygisk modules don’t run for system-level hooks.
+* **Symptom:** Zygisk modules don't run for system-level hooks.
 * **Solution:**
 
-  * In Magisk Manager’s **Zygisk** settings, disable “Enforce DenyList”.
-  * Ensure Magisk version supports Zygisk on Android 14 (use `minMagiskVersion` in `module.prop`).
+  * In Magisk Manager's **Zygisk** settings, disable "Enforce DenyList".
+  * Ensure Magisk version supports Zygisk on Android 14 (use `minMagiskVersion` in `module.prop`).
 
 **Considerations:**
 
-* OxygenOS’s SELinux policy may differ; monitor `/sys/fs/selinux/enforce` and adjust policies accordingly.
+* OxygenOS's SELinux policy may differ; monitor `/sys/fs/selinux/enforce` and adjust policies accordingly.
 
 ---
 
@@ -139,14 +139,14 @@
 
 **Issue: ADB shell commands default to chroot namespace**
 
-* **Symptom:** `adb shell pm install` invokes chroot’s `pm`, not system’s.
+* **Symptom:** `adb shell pm install` invokes chroot's `pm`, not system's.
 * **Solution:**
 
   * Prefix commands with `adb shell su -mm -c 'pm install …'` to ensure host Android shell context.
 
 **Considerations:**
 
-* OnePlus 12’s Nethunter may mount additional namespaces; develop scripts to detect and bypass chroot when performing installation or logging.
+* OnePlus 12's Nethunter may mount additional namespaces; develop scripts to detect and bypass chroot when performing installation or logging.
 
 ---
 
@@ -170,7 +170,7 @@
 
 **Considerations:**
 
-* With 16 GB + 12 GB RAM Boost, you have headroom but don’t waste resources—OnePlus thermal management may kill over-consuming processes.
+* With 16 GB + 12 GB RAM Boost, you have headroom but don't waste resources—OnePlus thermal management may kill over-consuming processes.
 
 ---
 
@@ -235,8 +235,279 @@
 * **Iterative Development:** Validate each change on-device before expanding scope.
 * **Version Tracking:** Note exact Magisk, LSPosed, and OxygenOS build numbers when troubleshooting.
 * **Isolation:** Use a barebones module (only logging) to confirm foundational functionality before adding hooks.
-* **Documentation:** Record every signature change, SELinux tweak, or path workaround in the framework’s Wiki.
+* **Documentation:** Record every signature change, SELinux tweak, or path workaround in the framework's Wiki.
 
 ---
 
-This guide should help you quickly diagnose and remediate issues when building or extending your LSPosed Modular Framework on the OnePlus 12 environment. Continually update this document as you encounter new device-specific quirks.
+## 1. Annotation Processing Issues
+
+### 1.1 Missing Metadata Files
+**Problem:** `META-INF/xposed/*` files not generated
+**Solution:**
+1. Check `@XposedPlugin` annotation is present
+2. Run `./gradlew clean processAnnotations`
+3. Verify annotation processor in `build.gradle`:
+   ```groovy
+   dependencies {
+     annotationProcessor 'com.yourorg.lsposed:plugin-processor:1.0.0'
+   }
+   ```
+
+### 1.2 Invalid Annotations
+**Problem:** Build fails with annotation validation errors
+**Solution:**
+1. Ensure all required fields are present in `@XposedPlugin`
+2. Check version format follows semver
+3. Verify scope entries are valid package names
+
+## 2. Hot-Reload Problems
+
+### 2.1 Changes Not Applying
+**Problem:** Code changes not reflecting in app
+**Solution:**
+1. Verify development server is running:
+   ```bash
+   ./gradlew runDevServer --info
+   ```
+2. Check module has `@HotReloadable`
+3. Ensure `onHotReload()` is implemented
+4. Look for errors in logcat:
+   ```bash
+   adb logcat | grep "HotReload"
+   ```
+
+### 2.2 Server Connection Issues
+**Problem:** Hot-reload server unreachable
+**Solution:**
+1. Check port is available:
+   ```bash
+   lsof -i :8081
+   ```
+2. Verify ADB connection:
+   ```bash
+   adb devices
+   ```
+3. Ensure correct port in `build.gradle`:
+   ```groovy
+   lsposed {
+     devServerPort = 8081
+   }
+   ```
+
+## 3. Settings UI Generation
+
+### 3.1 UI Not Appearing
+**Problem:** Settings screen not showing in LSPosed Manager
+**Solution:**
+1. Validate settings.json schema:
+   ```bash
+   ./gradlew validateSettings
+   ```
+2. Check file location:
+   ```
+   modules/YourModule/settings.json
+   ```
+3. Rebuild and reinstall module
+
+### 3.2 Settings Not Persisting
+**Problem:** Settings reset after reboot
+**Solution:**
+1. Verify JSON types match usage
+2. Check storage permissions
+3. Clear LSPosed Manager data and retry
+
+## 4. Dependency Resolution
+
+### 4.1 Version Conflicts
+**Problem:** Build fails with dependency conflicts
+**Solution:**
+1. Check version constraints:
+   ```bash
+   ./gradlew checkDependencies --info
+   ```
+2. Update module-info.json:
+   ```json
+   {
+     "dependsOn": {
+       "com.example.core": ">=1.0.0"
+     }
+   }
+   ```
+3. Resolve conflicts manually if needed
+
+### 4.2 Missing Dependencies
+**Problem:** Required modules not found
+**Solution:**
+1. Verify dependency exists in repository
+2. Check version availability
+3. Update dependency declaration
+
+## 5. Resource Overlay Issues
+
+### 5.1 Overlay Not Applying
+**Problem:** Custom resources not showing
+**Solution:**
+1. Check overlay structure:
+   ```
+   res/overlay/target.package/
+   ```
+2. Verify target package name
+3. Rebuild and reinstall overlay:
+   ```bash
+   ./gradlew installOverlays
+   ```
+
+### 5.2 Resource Conflicts
+**Problem:** Resource override conflicts
+**Solution:**
+1. Check resource IDs
+2. Verify overlay priority
+3. Clear resource cache
+
+## 6. Remote Updates
+
+### 6.1 Update Check Failures
+**Problem:** Updates not detecting
+**Solution:**
+1. Verify CDN connectivity
+2. Check update-config.json:
+   ```json
+   {
+     "updateSources": [
+       {
+         "url": "https://cdn.example.com",
+         "publicKey": "..."
+       }
+     ]
+   }
+   ```
+3. Validate version numbers
+
+### 6.2 Update Installation Failures
+**Problem:** Updates fail to install
+**Solution:**
+1. Check signature verification
+2. Verify storage space
+3. Clear update cache
+
+## 7. Development Tools
+
+### 7.1 IDE Integration Issues
+**Problem:** IDE plugins not working
+**Solution:**
+1. Update plugins
+2. Check compatibility
+3. Enable features in build.gradle:
+   ```groovy
+   lsposed {
+     enableDevTools = true
+   }
+   ```
+
+### 7.2 Debug Tools Problems
+**Problem:** Monitoring tools not working
+**Solution:**
+1. Check permissions
+2. Verify tool dependencies
+3. Update development tools
+
+## 8. Common Error Messages
+
+### 8.1 Annotation Processing
+```
+Error: Invalid @XposedPlugin annotation
+```
+- Check annotation parameters
+- Verify processor version
+- Clean and rebuild
+
+### 8.2 Hot-Reload
+```
+Error: Hot-reload connection failed
+```
+- Check server status
+- Verify port availability
+- Check network connection
+
+### 8.3 Settings UI
+```
+Error: Invalid settings schema
+```
+- Validate JSON format
+- Check field types
+- Verify required fields
+
+### 8.4 Dependencies
+```
+Error: Dependency resolution failed
+```
+- Check version constraints
+- Verify repository access
+- Update dependencies
+
+## 9. Performance Issues
+
+### 9.1 Slow Hot-Reload
+**Problem:** Hot-reload taking too long
+**Solution:**
+1. Monitor performance:
+   ```bash
+   ./gradlew monitorHotReload --info
+   ```
+2. Reduce module size
+3. Optimize reload logic
+
+### 9.2 High Memory Usage
+**Problem:** Excessive memory consumption
+**Solution:**
+1. Track memory:
+   ```bash
+   ./gradlew trackMemory
+   ```
+2. Profile hooks
+3. Optimize resource usage
+
+## 10. Recovery Steps
+
+### 10.1 Clean State
+1. Stop development server
+2. Clean build files:
+   ```bash
+   ./gradlew clean
+   ./gradlew cleanHotReload
+   ./gradlew cleanGeneratedUI
+   ```
+3. Clear LSPosed Manager data
+4. Reinstall module
+
+### 10.2 Debug Mode
+1. Enable verbose logging:
+   ```groovy
+   lsposed {
+     debug = true
+     verboseLogging = true
+   }
+   ```
+2. Monitor logcat
+3. Check generated files
+
+## 11. Getting Help
+
+1. Check framework logs:
+   ```bash
+   ./gradlew tailLogs
+   ```
+
+2. Generate debug report:
+   ```bash
+   ./gradlew debugReport
+   ```
+
+3. Contact support with:
+   - Debug report
+   - Module version
+   - LSPosed version
+   - Android version
+   - Error messages
+
+This guide should help you quickly diagnose and remediate issues when building or extending your LSPosed Modular Framework on the OnePlus 12 environment. Continually update this document as you encounter new device-specific quirks.
