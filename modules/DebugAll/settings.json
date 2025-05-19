@@ -1,0 +1,24 @@
+{
+  "enabledByDefault": true,
+  "fields": [
+    {
+      "key": "verboseLogging",
+      "type": "boolean",
+      "label": "Verbose Logging",
+      "defaultValue": false
+    },
+    {
+      "key": "debugLevel",
+      "type": "choice",
+      "label": "Debug Level",
+      "options": ["info", "debug", "verbose"],
+      "defaultValue": "info"
+    },
+    {
+      "key": "targetApps",
+      "type": "package_list",
+      "label": "Target Applications",
+      "description": "Select apps to apply debug flags to"
+    }
+  ]
+} 

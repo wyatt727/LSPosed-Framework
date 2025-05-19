@@ -1,0 +1,51 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: gradle
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    
+    - name: Build with Gradle
+      run: ./gradlew build
+    
+    - name: Process Annotations
+      run: ./gradlew processAnnotations
+      
+    - name: Validate Dependencies
+      run: ./gradlew checkDependencies
+      
+    - name: Generate Settings UI
+      run: ./gradlew generateSettingsUI
+      
+    - name: Package Overlays
+      run: ./gradlew packageOverlays
+      
+    - name: Run Tests
+      run: ./gradlew test
+      
+    - name: Build Release
+      run: ./gradlew assembleRelease
+      
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-release
+        path: app/build/outputs/apk/release/app-release.apk 

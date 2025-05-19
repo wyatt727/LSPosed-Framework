@@ -69,7 +69,7 @@ Replace YAML descriptors with Java annotations:
 
 ```java
 @XposedPlugin(
-  id = "com.yourorg.DebugAll",
+  id = "com.wobbz.DebugAll",
   name = "Debug-All",
   version = "1.0.0",
   scope = {
@@ -105,8 +105,8 @@ Define module relationships in `module-info.json`:
 ```json
 {
   "dependsOn": {
-    "com.yourorg.CoreUtils": ">=1.2.0",
-    "com.yourorg.CommonLib": "^2.0.0"
+    "com.wobbz.CoreUtils": ">=1.2.0",
+    "com.wobbz.CommonLib": "^2.0.0"
   },
   "conflictsWith": [
     "com.otherorg.LegacyHooks"
@@ -184,7 +184,7 @@ Configure in `update-config.json`:
   "updateSources": [
     {
       "name": "Official CDN",
-      "url": "https://cdn.yourorg.com/lsposed/modules",
+      "url": "https://cdn.wobbz.com/lsposed/modules",
       "publicKey": "BASE64_ED25519_PUBLIC_KEY"
     }
   ],

@@ -63,7 +63,7 @@
      framework/
        build.gradle
        proguard-rules.pro
-       src/main/java/com/yourorg/framework/
+       src/main/java/com/wobbz/framework/
          IModulePlugin.java
          PluginManager.java
        src/main/resources/META-INF/xposed/
@@ -104,7 +104,7 @@
 
    ```java
    @XposedPlugin(
-     id = "com.yourorg.NewFeature",
+     id = "com.wobbz.NewFeature",
      name = "New Feature",
      scope = {"com.example.app", "system_server"},
      version = "1.0.0"
@@ -120,8 +120,8 @@
    ```json
    {
      "dependsOn": {
-       "com.yourorg.CoreUtils": ">=1.2.0",
-       "com.yourorg.CommonLib": "^2.0.0"
+       "com.wobbz.CoreUtils": ">=1.2.0",
+       "com.wobbz.CommonLib": "^2.0.0"
      },
      "conflictsWith": [
        "com.otherorg.LegacyHooks"
@@ -201,7 +201,7 @@
      "updateSources": [
        {
          "name": "Official CDN",
-         "url": "https://cdn.yourorg.com/lsposed/modules",
+         "url": "https://cdn.wobbz.com/lsposed/modules",
          "publicKey": "BASE64_ED25519_PUBLIC_KEY"
        }
      ],
@@ -241,7 +241,7 @@
 
    ```groovy
    dependencies {
-     annotationProcessor 'com.yourorg.lsposed:plugin-processor:1.0.0'
+     annotationProcessor 'com.wobbz.lsposed:plugin-processor:1.0.0'
    }
    ```
 

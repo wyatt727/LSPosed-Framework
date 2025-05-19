@@ -1,0 +1,7 @@
+{
+  "dependsOn": {},
+  "conflictsWith": [],
+  "provides": {
+    "debuggingCapability": "1.0.0"
+  }
+} 

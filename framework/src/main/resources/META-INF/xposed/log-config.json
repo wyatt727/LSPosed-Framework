@@ -1,0 +1,11 @@
+{
+  "globalLevel": 2,
+  "useXposedLog": true,
+  "tagLevels": {
+    "DevServer": 1,
+    "RemoteUpdateClient": 2,
+    "OverlayManager": 2,
+    "PluginManager": 2,
+    "DebugAll": 1
+  }
+} 

@@ -1,0 +1,176 @@
+````markdown
+# 📦 CI/CD Pipeline Documentation
+
+This document describes the **Continuous Integration / Continuous Deployment** (CI/CD) workflow for the LSPosed Modular Framework. We use **GitHub Actions** to automate builds, validations, and artifact publishing on every push and pull request.
+
+---
+
+## 📈 Pipeline Overview
+
+- **Trigger events**  
+  - `push` on `master`  
+  - `pull_request` targeting `master`
+
+- **Runner**  
+  - Hosted Ubuntu VM (`ubuntu-latest`)  
+  - JDK 8 via Temurin (cached Gradle dependencies)
+
+- **Primary goals**  
+  1. **Validate** module descriptors, dependencies, code style  
+  2. **Compile** framework + all feature modules  
+  3. **Process** annotation-driven code generation  
+  4. **Generate** merged `META-INF/xposed/*` resources  
+  5. **Package** debug/release APKs  
+  6. **Publish** build artifacts for download
+
+---
+
+## 🛠️ Workflow: `.github/workflows/build.yml`
+
+```yaml
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout your code
+      - uses: actions/checkout@v3
+
+      # 2. Setup Java 8 with Gradle cache
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: gradle
+
+      # 3. Ensure Gradle wrapper is executable
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 4. Build & validate
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      - name: Process Annotations
+        run: ./gradlew processAnnotations
+
+      - name: Validate Dependencies
+        run: ./gradlew checkDependencies
+
+      - name: Generate Settings UI
+        run: ./gradlew generateSettingsUI
+
+      - name: Package Overlays
+        run: ./gradlew packageOverlays
+
+      # 5. Run unit & integration tests
+      - name: Run Tests
+        run: ./gradlew test
+
+      # 6. Assemble the signed release APK
+      - name: Build Release
+        run: ./gradlew assembleRelease
+
+      # 7. Upload APK artifact for easy download
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: lspf-framework-apk
+          path: framework/build/outputs/apk/release/app-release.apk
+````
+
+---
+
+## 🔍 Step-by-Step Breakdown
+
+| Step                   | Purpose                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| **actions/checkout**   | Pulls your Git code into the runner.                                                   |
+| **setup-java**         | Installs Temurin JDK 8 and caches Gradle artifacts for fast incremental builds.        |
+| **chmod gradlew**      | Ensures the Gradle wrapper can execute without error.                                  |
+| **./gradlew build**    | Compiles framework + feature modules; validates descriptor-driven resource generation. |
+| **processAnnotations** | (If enabled) runs annotation processors to generate code (e.g. automated descriptors). |
+| **checkDependencies**  | Runs custom Gradle task to ensure no conflicting or missing module dependencies.       |
+| **generateSettingsUI** | Auto-generates JSON schemas for each feature’s settings screen.                        |
+| **packageOverlays**    | Builds resource-overlay APKs or RROs from module-provided assets.                      |
+| **test**               | Executes all unit tests and integration tests in `src/test` and `src/androidTest`.     |
+| **assembleRelease**    | Produces the signed/aligned release APK ready for distribution.                        |
+| **upload-artifact**    | Stores the resulting APK as a downloadable artifact on the Actions run page.           |
+
+---
+
+## ⚙️ Secrets & Configuration
+
+* **Signing keys** (if you opt to auto-sign releases)
+
+  * Store your Android keystore and passwords in GitHub Secrets (e.g. `KEYSTORE_BASE64`, `KEYSTORE_PASS`, `KEY_ALIAS`, `KEY_PASS`).
+  * Modify `assembleRelease` step to decode the keystore and pass signing configs via Gradle properties.
+
+* **Custom Environment Variables**
+
+  * `GRADLE_OPTS` to tune memory:
+
+    ```yaml
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g"
+    ```
+  * `ANDROID_HOME` / `ANDROID_SDK_ROOT` for Android-specific tasks (if needed).
+
+---
+
+## 🔄 Artifact Retention & Versioning
+
+* **Artifact naming**
+
+  * The build artifact is named `lspf-framework-apk` and contains the signed APK.
+  * You can customize the `name:` field to include commit SHA or version codes.
+
+* **Retention**
+
+  * By default, GitHub Actions retains artifacts for **90 days**. Configure `retention-days:` under `upload-artifact` if you need shorter or longer lifetimes.
+
+* **Semantic Versioning**
+
+  * We derive `versionCode` and `versionName` from Git tags via Gradle.
+  * Tag your releases (e.g. `v1.2.0`) and use a separate **Release** workflow to publish GitHub Releases.
+
+---
+
+## 🚀 Extending the Pipeline
+
+1. **Release Workflow**
+   Create `.github/workflows/release.yml` to trigger on new **Git tag**, run the same build, then use `actions/create-release` to publish the APK to GitHub Releases.
+
+2. **Matrix Builds**
+   Add a `strategy.matrix` for multiple JDK versions or Gradle versions to catch compatibility issues early.
+
+3. **Static Analysis & Linting**
+   Integrate plugins like `detekt`, `ktlint`, or `Checkstyle` into the pipeline for code quality checks.
+
+4. **Dependency Audit**
+   Use `gradle-license-plugin` to generate license reports and fail builds on disallowed libraries.
+
+5. **Performance Gates**
+   Instrument build-time profiling and enforce maximum hook startup latency via a custom Gradle plugin.
+
+---
+
+## 📖 Further Reading
+
+* [GitHub Actions Documentation](https://docs.github.com/actions)
+* [actions/setup-java](https://github.com/actions/setup-java)
+* [actions/upload-artifact](https://github.com/actions/upload-artifact)
+* [Gradle Build Cache](https://docs.gradle.org/current/userguide/build_cache.html)
+
+---
+
+By following this CI/CD documentation, you ensure **consistent**, **reproducible**, and **automated** builds of your LSPosed Modular Framework—enabling rapid feedback loops and high-quality releases every time you push code.

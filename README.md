@@ -1,7 +1,7 @@
 # 🚀 LSPosed Modular Framework
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/yourorg/LSPosedFramework/build.yml?branch=main)](https://github.com/yourorg/LSPosedFramework/actions)
-[![Release](https://img.shields.io/github/v/release/yourorg/LSPosedFramework)](https://github.com/yourorg/LSPosedFramework/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/wobbz/LSPosedFramework/build.yml?branch=main)](https://github.com/wobbz/LSPosedFramework/actions)
+[![Release](https://img.shields.io/github/v/release/wobbz/LSPosedFramework)](https://github.com/wobbz/LSPosedFramework/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > A **modern**, **annotation-driven**, and **Android 15-ready** host framework for all your LSPosed modules—featuring hot-reload development, auto-generated UI, and seamless dependency management.
@@ -68,7 +68,7 @@ LSPosedFramework/
 │   ├── build.gradle  ← annotation processor setup
 │   ├── proguard-rules.pro
 │   └── src/
-│       ├── main/java/com/yourorg/framework/
+│       ├── main/java/com/wobbz/framework/
 │       │   ├── annotations/     ← @XposedPlugin, @HotReloadable
 │       │   ├── ui/             ← Settings UI generation
 │       │   ├── updates/        ← Remote update client
@@ -79,7 +79,7 @@ LSPosedFramework/
     │   ├── build.gradle
     │   ├── module-info.json    ← dependencies & conflicts
     │   ├── settings.json       ← UI configuration
-    │   └── src/main/java/com/yourorg/debugall/
+    │   └── src/main/java/com/wobbz/debugall/
     │       └── DebugAllModule.java  ← @XposedPlugin annotation
     └── AdBlocker/
         ├── build.gradle
@@ -93,7 +93,7 @@ LSPosedFramework/
 
 ```java
 @XposedPlugin(
-  id = "com.yourorg.DebugAll",
+  id = "com.wobbz.DebugAll",
   name = "Debug-All",
   description = "Force-enable DEBUGGABLE on all apps",
   scope = {"com.android.systemui", "com.chrome.browser"}
@@ -109,7 +109,7 @@ public class DebugAllModule implements IModulePlugin {
 ```json
 {
   "dependsOn": {
-    "com.yourorg.CoreUtils": ">=1.2.0"
+    "com.wobbz.CoreUtils": ">=1.2.0"
   },
   "conflictsWith": [
     "com.otherorg.LegacyHooks"
@@ -214,7 +214,7 @@ res/overlay/com.android.systemui/
 
 ```java
 @XposedPlugin(
-  id = "com.yourorg.NewFeature",
+  id = "com.wobbz.NewFeature",
   name = "New Feature"
 )
 @HotReloadable
@@ -228,7 +228,7 @@ public class NewFeatureModule implements IModulePlugin {
 ```json
 {
   "dependsOn": {
-    "com.yourorg.CoreUtils": "^2.0.0"
+    "com.wobbz.CoreUtils": "^2.0.0"
   }
 }
 ```

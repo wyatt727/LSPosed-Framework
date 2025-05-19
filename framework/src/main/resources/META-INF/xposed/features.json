@@ -1,0 +1,40 @@
+{
+  "globalEnabled": true,
+  "features": {
+    "com.wobbz.DebugAll": {
+      "enabled": true,
+      "enabledForPackages": ["com.android.systemui", "com.android.settings"],
+      "disabledForPackages": []
+    },
+    "com.wobbz.NetworkLogger": {
+      "enabled": true,
+      "enabledForPackages": [],
+      "disabledForPackages": ["com.android.vending"]
+    },
+    "com.wobbz.AdBlocker": {
+      "enabled": true,
+      "enabledForPackages": [],
+      "disabledForPackages": []
+    },
+    "com.wobbz.PrivacyGuard": {
+      "enabled": false,
+      "enabledForPackages": [],
+      "disabledForPackages": []
+    }
+  },
+  "deviceSpecific": {
+    "oneplus": {
+      "com.wobbz.DebugAll": {
+        "enabled": true,
+        "customSettings": {
+          "debugLevel": "verbose"
+        }
+      }
+    },
+    "samsung": {
+      "com.wobbz.DebugAll": {
+        "enabled": false
+      }
+    }
+  }
+} 

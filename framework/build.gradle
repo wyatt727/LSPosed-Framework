@@ -1,0 +1,315 @@
+apply plugin: 'com.android.library'
+
+android {
+  compileSdkVersion rootProject.ext.compileSdk
+  
+  defaultConfig {
+    minSdkVersion rootProject.ext.minSdk
+    targetSdkVersion rootProject.ext.targetSdk
+    
+    compileOptions {
+      sourceCompatibility rootProject.ext.javaVersion
+      targetCompatibility rootProject.ext.javaVersion
+    }
+  }
+  
+  buildTypes {
+    release {
+      minifyEnabled false
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+  }
+}
+
+dependencies {
+  // XPosed APIs
+  compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+  
+  // For annotation processing
+  implementation 'com.google.auto.service:auto-service:1.0.1'
+  annotationProcessor 'com.google.auto.service:auto-service:1.0.1'
+  
+  // JSON processing for settings and config
+  implementation 'com.google.code.gson:gson:2.10.1'
+  
+  // Android UI components (for settings UI)
+  implementation 'androidx.appcompat:appcompat:1.6.1'
+  
+  // Testing dependencies
+  testImplementation 'junit:junit:4.13.2'
+}
+
+// Hot-swap configuration
+ext {
+  hotSwap = [
+    adbPath: findAdbPath(),
+    targetDevice: null, // Will use first device if null
+    moduleId: 'com.wobbz.lsposedframework',
+    dataDir: '/data/data/com.wobbz.lsposedframework',
+    remoteApkPath: '/data/local/tmp/framework-update.apk',
+    lsposedServiceAction: 'io.github.lsposed.manager.RELOAD'
+  ]
+}
+
+// Find ADB path
+def findAdbPath() {
+  def adbPath = null
+  
+  // Check from Android SDK
+  def androidHome = System.getenv('ANDROID_HOME')
+  if (androidHome) {
+    def adb = new File(androidHome, 'platform-tools/adb')
+    if (adb.exists()) {
+      adbPath = adb.absolutePath
+    }
+  }
+  
+  // Check from Android SDK root
+  if (!adbPath) {
+    def androidSdkRoot = System.getenv('ANDROID_SDK_ROOT')
+    if (androidSdkRoot) {
+      def adb = new File(androidSdkRoot, 'platform-tools/adb')
+      if (adb.exists()) {
+        adbPath = adb.absolutePath
+      }
+    }
+  }
+  
+  // Check from PATH
+  if (!adbPath) {
+    def osName = System.getProperty('os.name').toLowerCase()
+    def isWindows = osName.contains('windows')
+    def command = isWindows ? 'where adb' : 'which adb'
+    def process = command.execute()
+    process.waitFor()
+    if (process.exitValue() == 0) {
+      adbPath = process.text.trim()
+    }
+  }
+  
+  return adbPath
+}
+
+// Custom tasks for framework functionality
+tasks.register('processAnnotations') {
+  group = 'framework'
+  description = 'Process XPosed plugin annotations and generate metadata files'
+  
+  doLast {
+    println "Processing annotations and generating metadata files..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('generateSettingsUI') {
+  group = 'framework'
+  description = 'Generate UI from settings JSON schemas'
+  
+  doLast {
+    println "Generating settings UI..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('checkDependencies') {
+  group = 'framework'
+  description = 'Check for module dependency conflicts'
+  
+  doLast {
+    println "Checking module dependencies..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('packageOverlays') {
+  group = 'framework'
+  description = 'Package resource overlays'
+  
+  doLast {
+    println "Packaging resource overlays..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('runDevServer') {
+  group = 'framework'
+  description = 'Run hot-reload development server'
+  
+  doLast {
+    println "Starting hot-reload development server..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('buildUpdate') {
+  group = 'framework'
+  description = 'Build update package for distribution'
+  
+  doLast {
+    println "Building update package..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('signUpdate') {
+  group = 'framework'
+  description = 'Sign update package with Ed25519 key'
+  
+  doLast {
+    println "Signing update package..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('uploadToCDN') {
+  group = 'framework'
+  description = 'Upload update package to CDN'
+  
+  doLast {
+    println "Uploading update package to CDN..."
+    // This will be implemented with actual code later
+  }
+}
+
+tasks.register('hotSwap') {
+  group = 'framework'
+  description = 'Hot-swap framework or modules to device for instant updating'
+  dependsOn 'assembleDebug'
+  
+  doLast {
+    println "Performing hot-swap to device..."
+    
+    // Check that we have ADB
+    if (!project.ext.hotSwap.adbPath) {
+      throw new GradleException("Could not find ADB. Make sure Android SDK is properly set up.")
+    }
+    
+    def adbPath = project.ext.hotSwap.adbPath
+    def targetDevice = project.ext.hotSwap.targetDevice
+    def deviceArg = targetDevice ? "-s ${targetDevice}" : ""
+    
+    // Check for connected devices
+    def deviceCheckCmd = "${adbPath} ${deviceArg} devices"
+    def deviceProcess = deviceCheckCmd.execute()
+    deviceProcess.waitFor()
+    def deviceOutput = deviceProcess.text
+    
+    // Ensure at least one device is connected
+    if (!deviceOutput.contains("\tdevice")) {
+      throw new GradleException("No devices connected. Connect a device and try again.")
+    }
+    
+    // Get the APK file
+    def apkFile = new File("${buildDir}/outputs/apk/debug/framework-debug.aar")
+    if (!apkFile.exists()) {
+      throw new GradleException("Debug APK not found. Build failed?")
+    }
+    
+    // Push to device
+    println "Pushing APK to device..."
+    def pushCmd = "${adbPath} ${deviceArg} push ${apkFile.absolutePath} ${project.ext.hotSwap.remoteApkPath}"
+    def pushProcess = pushCmd.execute()
+    pushProcess.waitFor()
+    if (pushProcess.exitValue() != 0) {
+      throw new GradleException("Failed to push APK to device: ${pushProcess.err.text}")
+    }
+    
+    // Install on device
+    println "Installing APK on device..."
+    def installCmd = "${adbPath} ${deviceArg} shell su -c 'pm install -r ${project.ext.hotSwap.remoteApkPath}'"
+    def installProcess = installCmd.execute()
+    installProcess.waitFor()
+    if (installProcess.exitValue() != 0) {
+      throw new GradleException("Failed to install APK on device: ${installProcess.err.text}")
+    }
+    
+    // Trigger LSPosed to reload modules
+    println "Triggering LSPosed to reload modules..."
+    def reloadCmd = "${adbPath} ${deviceArg} shell am broadcast -a ${project.ext.hotSwap.lsposedServiceAction}"
+    def reloadProcess = reloadCmd.execute()
+    reloadProcess.waitFor()
+    if (reloadProcess.exitValue() != 0) {
+      throw new GradleException("Failed to trigger LSPosed reload: ${reloadProcess.err.text}")
+    }
+    
+    println "Hot-swap complete! Framework has been updated and reloaded."
+  }
+}
+
+// Task for hot-swapping individual modules
+tasks.register('hotSwapModule') {
+  group = 'framework'
+  description = 'Hot-swap a specific module to device'
+  
+  doLast {
+    def moduleName = project.hasProperty('module') ? project.property('module') : null
+    if (!moduleName) {
+      throw new GradleException("Please specify a module name with -Pmodule=ModuleName")
+    }
+    
+    def moduleDir = new File("${rootProject.projectDir}/modules/${moduleName}")
+    if (!moduleDir.exists() || !moduleDir.isDirectory()) {
+      throw new GradleException("Module ${moduleName} not found")
+    }
+    
+    println "Building module ${moduleName}..."
+    def buildCmd = "./gradlew :modules:${moduleName}:assembleDebug"
+    def buildProcess = buildCmd.execute(null, rootProject.projectDir)
+    buildProcess.consumeProcessOutput(System.out, System.err)
+    buildProcess.waitFor()
+    if (buildProcess.exitValue() != 0) {
+      throw new GradleException("Failed to build module ${moduleName}")
+    }
+    
+    def moduleApk = new File("${moduleDir}/build/outputs/apk/debug/${moduleName}-debug.aar")
+    if (!moduleApk.exists()) {
+      throw new GradleException("Module APK not found. Build failed?")
+    }
+    
+    // Get ADB connection info
+    def adbPath = project.ext.hotSwap.adbPath
+    def targetDevice = project.ext.hotSwap.targetDevice
+    def deviceArg = targetDevice ? "-s ${targetDevice}" : ""
+    
+    // Check for connected devices
+    def deviceCheckCmd = "${adbPath} ${deviceArg} devices"
+    def deviceProcess = deviceCheckCmd.execute()
+    deviceProcess.waitFor()
+    def deviceOutput = deviceProcess.text
+    
+    // Ensure at least one device is connected
+    if (!deviceOutput.contains("\tdevice")) {
+      throw new GradleException("No devices connected. Connect a device and try again.")
+    }
+    
+    // Push to device
+    println "Pushing module APK to device..."
+    def remoteModulePath = "/data/local/tmp/${moduleName}-update.apk"
+    def pushCmd = "${adbPath} ${deviceArg} push ${moduleApk.absolutePath} ${remoteModulePath}"
+    def pushProcess = pushCmd.execute()
+    pushProcess.waitFor()
+    if (pushProcess.exitValue() != 0) {
+      throw new GradleException("Failed to push APK to device: ${pushProcess.err.text}")
+    }
+    
+    // Install on device
+    println "Installing module APK on device..."
+    def installCmd = "${adbPath} ${deviceArg} shell su -c 'pm install -r ${remoteModulePath}'"
+    def installProcess = installCmd.execute()
+    installProcess.waitFor()
+    if (installProcess.exitValue() != 0) {
+      throw new GradleException("Failed to install APK on device: ${installProcess.err.text}")
+    }
+    
+    // Trigger LSPosed to reload modules
+    println "Triggering LSPosed to reload modules..."
+    def reloadCmd = "${adbPath} ${deviceArg} shell am broadcast -a ${project.ext.hotSwap.lsposedServiceAction}"
+    def reloadProcess = reloadCmd.execute()
+    reloadProcess.waitFor()
+    if (reloadProcess.exitValue() != 0) {
+      throw new GradleException("Failed to trigger LSPosed reload: ${reloadProcess.err.text}")
+    }
+    
+    println "Hot-swap complete! Module ${moduleName} has been updated and reloaded."
+  }
+} 

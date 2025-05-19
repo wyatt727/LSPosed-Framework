@@ -1,0 +1,51 @@
+# Gradle files
+.gradle/
+build/
+captures/
+
+# Local configuration file
+local.properties
+
+# Android Studio generated files and folders
+*.iml
+.idea/
+.externalNativeBuild/
+.cxx/
+output.json
+
+# Log Files
+*.log
+
+# Android
+*.apk
+*.aar
+*.ap_
+*.aab
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Mac OS
+.DS_Store
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Version control
+vcs.xml
+
+# lint
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/ 

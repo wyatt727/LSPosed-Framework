@@ -290,7 +290,7 @@ Here are several high-impact build-time automations you can layer on top of your
 **What:** Scan the merged list of `entry_classes` and generate a `proguard-keep-rules.pro` fragment with lines like:
 
 ```proguard
--keep class com.yourorg.debugall.DebugAllModule { *; }
+-keep class com.wobbz.debugall.DebugAllModule { *; }
 ```
 
 **Why it helps:** Ensures R8 never strips or obfuscates your plugin entry points, without asking every module author to hand-craft keep rules.
@@ -325,8 +325,8 @@ Here are several high-impact build-time automations you can layer on top of your
 ```java
 public final class ModuleRegistry {
   public static final String[] ENTRY_CLASSES = {
-    "com.yourorg.debugall.DebugAllModule",
-    "com.yourorg.adblocker.AdBlockerModule",
+    "com.wobbz.debugall.DebugAllModule",
+    "com.wobbz.adblocker.AdBlockerModule",
     // …
   };
   public static final String[] SCOPES = {

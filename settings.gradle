@@ -1,0 +1,6 @@
+rootProject.name = "LSPosedFramework"
+include ':framework'
+fileTree('modules').eachDir { dir ->
+  include ":modules:${dir.name}"
+  project(":modules:${dir.name}").projectDir = dir
+} 

@@ -249,7 +249,7 @@
 3. Verify annotation processor in `build.gradle`:
    ```groovy
    dependencies {
-     annotationProcessor 'com.yourorg.lsposed:plugin-processor:1.0.0'
+     annotationProcessor 'com.wobbz.lsposed:plugin-processor:1.0.0'
    }
    ```
 

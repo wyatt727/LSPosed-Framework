@@ -1,0 +1,28 @@
+apply plugin: 'com.android.library'
+
+android {
+  compileSdkVersion rootProject.ext.compileSdk
+  
+  defaultConfig {
+    minSdkVersion rootProject.ext.minSdk
+    targetSdkVersion rootProject.ext.targetSdk
+    
+    compileOptions {
+      sourceCompatibility rootProject.ext.javaVersion
+      targetCompatibility rootProject.ext.javaVersion
+    }
+  }
+}
+
+dependencies {
+  implementation project(':framework')
+  compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+}
+
+// Enable hot-reload for this module
+ext {
+  lsposed {
+    enableHotReload = true
+    devServerPort = 8081
+  }
+} 
