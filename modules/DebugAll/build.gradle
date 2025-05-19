@@ -20,9 +20,7 @@ dependencies {
 }
 
 // Enable hot-reload for this module
-ext {
-  lsposed {
-    enableHotReload = true
-    devServerPort = 8081
-  }
+lsposed {
+  enableHotReload = true
+  devServerPort = 8081
 } 

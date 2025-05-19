@@ -17,17 +17,20 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Manages feature toggles for modules.
+ * Manages feature toggles for modules and handles dependencies between modules.
  */
 public class FeatureManager {
     private static final String TAG = "FeatureManager";
@@ -41,6 +44,11 @@ public class FeatureManager {
     private final List<FeatureChangeListener> mListeners = new ArrayList<>();
     private final ScheduledExecutorService mExecutor = Executors.newSingleThreadScheduledExecutor();
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    
+    // Module dependency management
+    private final Map<String, Set<String>> mDependencyMap = new HashMap<>();
+    private final Map<String, Integer> mModulePriorities = new HashMap<>();
+    private final Map<String, Object> mSharedServices = new ConcurrentHashMap<>();
     
     /**
      * Private constructor for singleton pattern.
@@ -170,6 +178,140 @@ public class FeatureManager {
     }
     
     /**
+     * Register a dependency between modules.
+     * 
+     * @param moduleId The module ID that depends on another.
+     * @param dependsOnId The module ID that is depended upon.
+     */
+    public void registerDependency(String moduleId, String dependsOnId) {
+        Set<String> dependencies = mDependencyMap.computeIfAbsent(moduleId, k -> new HashSet<>());
+        dependencies.add(dependsOnId);
+        
+        LoggingHelper.debug(TAG, "Registered dependency: " + moduleId + " -> " + dependsOnId);
+    }
+    
+    /**
+     * Set the priority of a module. Higher priority modules are initialized first.
+     * 
+     * @param moduleId The module ID.
+     * @param priority The priority (higher value = higher priority).
+     */
+    public void setModulePriority(String moduleId, int priority) {
+        mModulePriorities.put(moduleId, priority);
+        LoggingHelper.debug(TAG, "Set module priority: " + moduleId + " = " + priority);
+    }
+    
+    /**
+     * Get the priority of a module.
+     * 
+     * @param moduleId The module ID.
+     * @return The priority, or 0 if not set.
+     */
+    public int getModulePriority(String moduleId) {
+        return mModulePriorities.getOrDefault(moduleId, 0);
+    }
+    
+    /**
+     * Check if all dependencies for a module are satisfied.
+     * 
+     * @param moduleId The module ID.
+     * @return true if all dependencies are satisfied, false otherwise.
+     */
+    public boolean areDependenciesSatisfied(String moduleId) {
+        Set<String> dependencies = mDependencyMap.get(moduleId);
+        if (dependencies == null || dependencies.isEmpty()) {
+            return true;
+        }
+        
+        for (String dependId : dependencies) {
+            if (!isFeatureEnabled(dependId)) {
+                LoggingHelper.warning(TAG, "Dependency not satisfied: " + moduleId + " -> " + dependId);
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Get a sorted list of modules based on dependencies and priorities.
+     * Modules with higher priorities come first.
+     * Dependent modules come after modules they depend on.
+     * 
+     * @return Sorted list of module IDs.
+     */
+    public List<String> getSortedModules() {
+        List<String> result = new ArrayList<>(mConfig.features.keySet());
+        
+        // Filter enabled modules
+        result.removeIf(moduleId -> !isFeatureEnabled(moduleId));
+        
+        // Sort by priority and dependencies
+        Collections.sort(result, new Comparator<String>() {
+            @Override
+            public int compare(String m1, String m2) {
+                // First compare by priority (higher first)
+                int p1 = getModulePriority(m1);
+                int p2 = getModulePriority(m2);
+                if (p1 != p2) {
+                    return p2 - p1; // Higher priority first
+                }
+                
+                // Then consider dependencies
+                Set<String> deps1 = mDependencyMap.get(m1);
+                Set<String> deps2 = mDependencyMap.get(m2);
+                
+                // If m1 depends on m2, m2 should come first
+                if (deps1 != null && deps1.contains(m2)) {
+                    return 1;
+                }
+                
+                // If m2 depends on m1, m1 should come first
+                if (deps2 != null && deps2.contains(m1)) {
+                    return -1;
+                }
+                
+                // Otherwise, maintain stable order
+                return m1.compareTo(m2);
+            }
+        });
+        
+        return result;
+    }
+    
+    /**
+     * Register a shared service for dependency injection.
+     * 
+     * @param serviceKey The service key.
+     * @param service The service instance.
+     */
+    public void registerService(String serviceKey, Object service) {
+        mSharedServices.put(serviceKey, service);
+        LoggingHelper.debug(TAG, "Registered service: " + serviceKey);
+    }
+    
+    /**
+     * Get a shared service.
+     * 
+     * @param serviceKey The service key.
+     * @return The service instance, or null if not found.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T getService(String serviceKey) {
+        return (T) mSharedServices.get(serviceKey);
+    }
+    
+    /**
+     * Check if a service is available.
+     * 
+     * @param serviceKey The service key.
+     * @return true if the service is available, false otherwise.
+     */
+    public boolean hasService(String serviceKey) {
+        return mSharedServices.containsKey(serviceKey);
+    }
+    
+    /**
      * Load the configuration from file.
      */
     private synchronized void loadConfig() {
@@ -193,6 +335,19 @@ public class FeatureManager {
             // Parse the config
             Gson gson = new Gson();
             FeatureConfig newConfig = gson.fromJson(builder.toString(), FeatureConfig.class);
+            
+            // Load module priorities and dependencies if present
+            if (newConfig.modulePriorities != null) {
+                mModulePriorities.clear();
+                mModulePriorities.putAll(newConfig.modulePriorities);
+            }
+            
+            if (newConfig.dependencies != null) {
+                mDependencyMap.clear();
+                for (Map.Entry<String, List<String>> entry : newConfig.dependencies.entrySet()) {
+                    mDependencyMap.put(entry.getKey(), new HashSet<>(entry.getValue()));
+                }
+            }
             
             // Detect changes
             if (mConfig != null) {
@@ -280,6 +435,12 @@ public class FeatureManager {
         
         @SerializedName("deviceSpecific")
         Map<String, JsonObject> deviceSpecific = new HashMap<>();
+        
+        @SerializedName("modulePriorities")
+        Map<String, Integer> modulePriorities = new HashMap<>();
+        
+        @SerializedName("dependencies")
+        Map<String, List<String>> dependencies = new HashMap<>();
     }
     
     /**
@@ -297,6 +458,9 @@ public class FeatureManager {
         
         @SerializedName("disabledForPackages")
         Set<String> disabledForPackages = new HashSet<>();
+        
+        @SerializedName("priority")
+        int priority = 0;
     }
     
     /**

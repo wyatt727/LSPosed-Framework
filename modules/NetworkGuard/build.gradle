@@ -1,0 +1,24 @@
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.wobbz.networkguard' // Changed from intentmaster
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11 // Match IntentMaster
+        targetCompatibility JavaVersion.VERSION_11 // Match IntentMaster
+    }
+}
+
+dependencies {
+    implementation project(':framework')
+    // compileOnly fileTree(dir: 'libs', include: ['*.jar']) // No libs dir for now
+
+    // Add Xposed API dependency
+    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+} 

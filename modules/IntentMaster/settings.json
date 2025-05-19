@@ -1,0 +1,68 @@
+{
+  "moduleName": "IntentMaster",
+  "moduleDescription": "Intercepts, modifies, redirects, and logs intents between applications",
+  "moduleVersion": "1.0.0",
+  "moduleAuthor": "Wobbz Framework Team",
+  "settings": [
+    {
+      "key": "targetApps",
+      "title": "Target Applications",
+      "summary": "Select which apps to intercept intents from",
+      "type": "multi_app_selector",
+      "default": []
+    },
+    {
+      "key": "logAllIntents",
+      "title": "Log All Intents",
+      "summary": "Keep a log of all intercepted intents",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "interceptionEnabled",
+      "title": "Enable Intent Interception",
+      "summary": "Globally enable or disable intent interception",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "intentRules",
+      "title": "Intent Rules",
+      "summary": "Define rules for matching and modifying intents",
+      "type": "custom",
+      "defaultJson": "[]",
+      "description": "Each rule defines how to match an intent and what action to take (modify, redirect, block, log)"
+    },
+    {
+      "key": "intentActions",
+      "title": "Available Intent Actions",
+      "summary": "Common intent actions for easier rule creation",
+      "type": "custom",
+      "readonly": true,
+      "defaultJson": "[\"android.intent.action.VIEW\", \"android.intent.action.SEND\", \"android.intent.action.SEND_MULTIPLE\", \"android.intent.action.MAIN\", \"android.intent.action.GET_CONTENT\", \"android.media.action.IMAGE_CAPTURE\", \"android.intent.action.PICK\"]"
+    },
+    {
+      "key": "intentCategories",
+      "title": "Available Intent Categories",
+      "summary": "Common intent categories for easier rule creation",
+      "type": "custom",
+      "readonly": true,
+      "defaultJson": "[\"android.intent.category.DEFAULT\", \"android.intent.category.BROWSABLE\", \"android.intent.category.LAUNCHER\", \"android.intent.category.APP_BROWSER\"]"
+    },
+    {
+      "key": "intentLogs",
+      "title": "Intent Logs",
+      "summary": "View logs of intercepted intents",
+      "type": "custom",
+      "readonly": true,
+      "defaultJson": "[]"
+    },
+    {
+      "key": "testIntent",
+      "title": "Test Intent Feature",
+      "summary": "Create and send test intents to see how they're handled",
+      "type": "custom",
+      "defaultJson": "{\"action\":\"\",\"uri\":\"\",\"type\":\"\",\"categories\":[],\"extras\":[],\"component\":\"\"}"
+    }
+  ]
+} 

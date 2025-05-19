@@ -1,0 +1,49 @@
+{
+  "enabledByDefault": true,
+  "fields": [
+    {
+      "key": "enabledApps",
+      "type": "package_list",
+      "label": "Target Applications",
+      "description": "Select applications to apply method hooks to"
+    },
+    {
+      "key": "verboseLogging",
+      "type": "boolean",
+      "label": "Verbose Logging",
+      "description": "Log detailed information about hook execution and timing",
+      "defaultValue": false,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "patchDefinitions",
+      "type": "json_editor",
+      "label": "Patch Definitions",
+      "description": "JSON configuration for method hooks",
+      "defaultValue": "[]",
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "showAdvancedOptions",
+      "type": "boolean",
+      "label": "Show Advanced Options",
+      "description": "Show additional configuration options for power users",
+      "defaultValue": false
+    },
+    {
+      "key": "loadCustomDex",
+      "type": "boolean",
+      "label": "Enable Custom DEX Loading",
+      "description": "Allow injection of custom DEX files into target applications",
+      "defaultValue": false,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "customDexPaths",
+      "type": "string_list",
+      "label": "Custom DEX Paths",
+      "description": "List of paths to DEX files to load into target applications",
+      "visibleIf": { "key": "loadCustomDex", "value": true }
+    }
+  ]
+} 

@@ -1,0 +1,14 @@
+{
+  "dependsOn": {
+    "com.wobbz.SuperPatcher": "1.0.0",
+    "com.wobbz.DeepIntegrator": "1.0.0"
+  },
+  "conflictsWith": [],
+  "provides": {
+    "intentInterception": "1.0.0",
+    "intentRedirection": "1.0.0",
+    "intentModification": "1.0.0",
+    "intentLogging": "1.0.0"
+  },
+  "priority": 300
+} 

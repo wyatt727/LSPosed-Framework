@@ -1,0 +1,79 @@
+{
+  "enabledByDefault": true,
+  "fields": [
+    {
+      "key": "targetApps",
+      "type": "package_list",
+      "label": "Target Applications",
+      "description": "Select applications to apply permission overrides to"
+    },
+    {
+      "key": "defaultPermissionBehavior",
+      "type": "choice",
+      "label": "Default Permission Behavior",
+      "options": ["GRANT", "DENY", "DEFAULT"],
+      "description": "Default behavior for permissions not explicitly configured",
+      "defaultValue": "DEFAULT"
+    },
+    {
+      "key": "permissionOverrides",
+      "type": "json_editor",
+      "label": "Permission Overrides",
+      "description": "JSON configuration for specific permission overrides",
+      "defaultValue": "[]"
+    },
+    {
+      "key": "bypassSignatureChecks",
+      "type": "boolean",
+      "label": "Bypass Signature Checks",
+      "description": "Allow applications to interact regardless of signature verification",
+      "defaultValue": true
+    },
+    {
+      "key": "bypassSharedUserIdChecks",
+      "type": "boolean",
+      "label": "Bypass SharedUserId Checks",
+      "description": "Allow access to data from apps using different sharedUserId values",
+      "defaultValue": true,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "enableReflectionEnhancement",
+      "type": "boolean",
+      "label": "Enable Reflection Enhancement",
+      "description": "Allow reflection access to hidden/private methods and fields",
+      "defaultValue": true
+    },
+    {
+      "key": "showAdvancedOptions",
+      "type": "boolean",
+      "label": "Show Advanced Options",
+      "description": "Show additional configuration options for power users",
+      "defaultValue": false
+    },
+    {
+      "key": "logPermissionRequests",
+      "type": "boolean",
+      "label": "Log Permission Requests",
+      "description": "Log all permission checks and their results",
+      "defaultValue": false,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "crossUserAccess",
+      "type": "boolean",
+      "label": "Enable Cross-User Access",
+      "description": "Allow applications to access data from other user profiles",
+      "defaultValue": false,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    },
+    {
+      "key": "applyDuringInstall",
+      "type": "boolean",
+      "label": "Apply During App Installation",
+      "description": "Apply overrides during app installation and updates",
+      "defaultValue": true,
+      "visibleIf": { "key": "showAdvancedOptions", "value": true }
+    }
+  ]
+} 

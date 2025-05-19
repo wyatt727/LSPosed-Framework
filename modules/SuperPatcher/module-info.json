@@ -1,0 +1,10 @@
+{
+  "dependsOn": {},
+  "conflictsWith": [],
+  "provides": {
+    "methodHooking": "1.0.0",
+    "fieldAccess": "1.0.0",
+    "classLoading": "1.0.0"
+  },
+  "priority": 100
+} 

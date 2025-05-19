@@ -1,5 +1,7 @@
 package com.wobbz.debugall;
 
+import android.app.Application;
+import android.app.AndroidAppHelper;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 
@@ -26,7 +28,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
  * Supports targeting specific apps and configuring different debug flags.
  */
 @XposedPlugin(
-    id = "com.wobbz.DebugAll",
+    id = "com.wobbz.debugall",
     name = "Debug-All",
     description = "Configure debug flags for selected applications",
     version = "1.0.0",
@@ -40,9 +42,10 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
     private Set<String> targetApps = new HashSet<>();
     private boolean verboseLogging = false;
     private String debugLevel = "info";
-    private Context mContext;
+    private Context mModuleContext;
     private AnalyticsManager mAnalyticsManager;
     private SettingsHelper mSettingsHelper;
+    private boolean mManagersInitialized = false;
     
     // Debug flag options
     private static final int FLAG_DEBUGGABLE = ApplicationInfo.FLAG_DEBUGGABLE;
@@ -54,19 +57,57 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
     @Override
     public void initZygote(StartupParam startupParam) throws Throwable {
         log("Module initialized in Zygote");
-        mContext = (Context) XposedHelpers.getObjectField(startupParam, "modulePath");
         
-        // Initialize analytics
-        if (mContext != null) {
-            mAnalyticsManager = AnalyticsManager.getInstance(mContext);
-            mSettingsHelper = new SettingsHelper(mContext, "com.wobbz.DebugAll");
-            loadSettings();
+        Application initialApplication = XposedBridge.sInitialApplication;
+        if (initialApplication != null) {
+            this.mModuleContext = initialApplication.getApplicationContext();
+            initializeManagersAndSettings(this.mModuleContext);
+        } else {
+            log("XposedBridge.sInitialApplication is null in initZygote. Managers and settings will be initialized later in handleLoadPackage.");
         }
         
         // Set default debug flags
         debugFlags.put("DEBUGGABLE", FLAG_DEBUGGABLE);
         debugFlags.put("ENABLE_PROFILING", FLAG_ENABLE_PROFILING);
         debugFlags.put("EXTERNAL_STORAGE_LEGACY", FLAG_EXTERNAL_STORAGE_LEGACY);
+    }
+    
+    private synchronized void initializeManagersAndSettings(Context context) {
+        if (mManagersInitialized) {
+            return;
+        }
+        if (context == null) {
+            log("Context is null, cannot initialize managers or settings.");
+            return;
+        }
+        this.mModuleContext = context.getApplicationContext();
+
+        try {
+            mAnalyticsManager = AnalyticsManager.getInstance(this.mModuleContext);
+            if (mAnalyticsManager != null) {
+                logVerbose("AnalyticsManager initialized successfully.");
+            } else {
+                log("AnalyticsManager.getInstance() returned null.");
+            }
+        } catch (Exception e) {
+            log("Failed to initialize AnalyticsManager: " + e.getMessage());
+            XposedBridge.log(e);
+        }
+
+        try {
+            mSettingsHelper = new SettingsHelper(this.mModuleContext, "com.wobbz.debugall");
+            logVerbose("SettingsHelper initialized successfully.");
+            loadSettings();
+        } catch (Exception e) {
+            log("Failed to initialize SettingsHelper: " + e.getMessage());
+            XposedBridge.log(e);
+        }
+
+        if (mSettingsHelper != null) {
+             mManagersInitialized = true;
+        } else {
+            log("SettingsHelper failed to initialize. Module may not function correctly.");
+        }
     }
     
     /**
@@ -96,6 +137,28 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
     
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) throws Throwable {
+        if (!mManagersInitialized) {
+            logVerbose("Attempting to initialize managers/settings in handleLoadPackage for: " + lpparam.packageName);
+            Context contextToUse = null;
+            if (lpparam.appInfo != null) {
+                try {
+                    contextToUse = AndroidAppHelper.currentApplication().createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
+                } catch (Exception e) {
+                     log("Failed to create package context for " + lpparam.packageName + ". Falling back. Error: " + e.getMessage());
+                }
+            }
+            if (contextToUse == null && XposedBridge.sInitialApplication != null) {
+                 logVerbose("Using XposedBridge.sInitialApplication as fallback context for manager/settings initialization.");
+                 contextToUse = XposedBridge.sInitialApplication.getApplicationContext();
+            }
+
+            if (contextToUse != null) {
+                initializeManagersAndSettings(contextToUse);
+            } else {
+                log("Still no context available in handleLoadPackage for " + lpparam.packageName + " to initialize managers/settings. Module may not function as expected.");
+            }
+        }
+
         String packageName = lpparam.packageName;
         
         // Skip if not in target apps (when target apps are configured)
@@ -111,7 +174,7 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
             long trackingId = 0;
             if (mAnalyticsManager != null) {
                 trackingId = mAnalyticsManager.trackHookStart(
-                    "setDebugFlags", "com.wobbz.DebugAll", packageName);
+                    "setDebugFlags", "com.wobbz.debugall", packageName);
             }
             
             // Hook the method that generates ApplicationInfo
@@ -171,10 +234,19 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
         }
         unhooks.clear();
         
-        // Reload settings
-        loadSettings();
+        // Reload settings - ensure managers are re-initialized if necessary first
+        mManagersInitialized = false;
+        if (this.mModuleContext != null) {
+            logVerbose("Re-initializing managers and settings with stored mModuleContext on hot-reload.");
+            initializeManagersAndSettings(this.mModuleContext);
+        } else if (XposedBridge.sInitialApplication != null) {
+            logVerbose("mModuleContext was null during hot-reload, attempting with sInitialApplication for manager/settings re-initialization.");
+            initializeManagersAndSettings(XposedBridge.sInitialApplication.getApplicationContext());
+        } else {
+            log("Cannot re-initialize managers/settings during hot-reload: No valid context stored or available. Settings may be stale.");
+        }
         
-        log("All hooks cleaned up, ready for new implementation");
+        log("All hooks cleaned up, settings reloaded (if possible), ready for new implementation");
     }
     
     private void log(String message) {

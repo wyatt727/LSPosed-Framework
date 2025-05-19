@@ -4,9 +4,10 @@ globs:
 alwaysApply: true
 ---
 # MOST IMPORTANT INSTRUCTIONS
-1. Always use codebase_search with target directories first to find existing core files
+1. Always use codebase_search with the target_directories of framework/src/main/wobbz/framework/ and modules/ to find existing core functionality
 2. Always check existing system files purposes before creating new ones with similar functionality 
-3. When making fixes or additions, first read the target file, then say a detailed plan with line numbers, INCLUDING POTENTIAL ISSUES, then begin thoughtful context-aware implementation.
+3. Always include comprehensive and exhaustive documentation for EVERYTHING
+4. When making fixes or additions, first read the target file, then say a detailed plan with line numbers, INCLUDING POTENTIAL ISSUES, then begin thoughtful context-aware implementation.
 5. Search the web with web_search when necesarry to ensure you're implementing everything correctly.
 
 

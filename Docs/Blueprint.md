@@ -21,7 +21,7 @@
      buildscript {
        repositories { google(); mavenCentral() }
        dependencies {
-         classpath 'com.android.tools.build:gradle:8.1.0'
+         classpath 'com.android.tools.build:gradle:8.2.0'
        }
      }
      allprojects {
@@ -29,10 +29,10 @@
      }
      ext {
        xposedApiVersion = '0.4.2'   // LSPosed build for Android 15
-       minSdk           = 21
+       minSdk           = 34
        targetSdk        = 35
-       compileSdk        = 35
-       javaVersion      = JavaVersion.VERSION_1_8
+       compileSdk       = 35
+       javaVersion      = JavaVersion.VERSION_17
      }
      ```
 
@@ -55,6 +55,8 @@
      }
      dependencies {
        compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+       implementation "com.google.code.gson:gson:2.10.1"
+       implementation "org.json:json:20231013"
      }
      ```
    * **Directory structure**
@@ -64,52 +66,52 @@
        build.gradle
        proguard-rules.pro
        src/main/java/com/wobbz/framework/
+         annotations/           ← @XposedPlugin, @HotReloadable
+         analytics/            ← Performance tracking
+         development/          ← Development tools
+         security/             ← Security management
+         ui/                   ← Settings UI generation
          IModulePlugin.java
          PluginManager.java
        src/main/resources/META-INF/xposed/
-         java_init.list.tpl
-         scope.list.tpl
-         module.prop.tpl
+         features.json         ← Feature configuration
+         log-config.json      ← Logging configuration
+         module.prop.tpl      ← Module properties template
      ```
 
-3. **Module Descriptor Processing**
+3. **Core Modules**
 
-   * A Gradle task in `framework/build.gradle` scans each `modules/*/descriptor.yaml`, parsing:
-
-     * `id`, `name`, `description` → merged into `module.prop`
-     * `entry_classes` → populates `java_init.list`
-     * `scope` → populates `scope.list`
-   * Generated files placed under `build/generated/META-INF/xposed/`
-
-4. **Generated Entry Class**
-
-   * Compiled under `build/generated/src/`
-   * Implements `IXposedHookZygoteInit` and `IXposedHookLoadPackage`
-   * Delegates both methods to `PluginManager`
-
-5. **Packaging**
-
-   * `./gradlew assembleRelease` produces one APK containing:
-
-     * All compiled code (framework + features)
-     * Merged `META-INF/xposed/java_init.list`, `scope.list`, `module.prop`
-   * Install via `adb install -r app-release.apk`
+   ```
+   modules/
+     IntentMaster/           ← Intent manipulation
+       module-info.json      ← Dependencies & metadata
+       settings.json         ← UI configuration
+       src/main/.../IntentMasterModule.java
+     NetworkGuard/           ← Network traffic control
+     PermissionOverride/     ← Permission management
+     DeepIntegrator/        ← Component exposure
+     SuperPatcher/          ← System modifications
+     DebugAll/              ← Debugging utilities
+   ```
 
 ---
 
 ## II. Module Metadata & Annotations
 
-1. **Annotation-Driven Discovery**
-   Instead of YAML descriptors, use Java annotations:
+1. **Annotation-Driven Development**
+   Use Java annotations for module metadata:
 
    ```java
    @XposedPlugin(
-     id = "com.wobbz.NewFeature",
-     name = "New Feature",
-     scope = {"com.example.app", "system_server"},
-     version = "1.0.0"
+     id = "com.wobbz.debugall",
+     name = "Debug-All",
+     description = "Configure debug flags for selected applications",
+     version = "1.0.0",
+     scope = {"android", "com.android.systemui"},
+     permissions = {"android.permission.READ_LOGS"}
    )
-   public class NewFeatureModule implements IModulePlugin { 
+   @HotReloadable
+   public class DebugAllModule implements IModulePlugin {
      // Implementation
    }
    ```
@@ -119,16 +121,16 @@
 
    ```json
    {
+     "id": "com.wobbz.debugall",
+     "version": "1.0.0",
+     "minApi": 34,
+     "maxApi": 35,
      "dependsOn": {
-       "com.wobbz.CoreUtils": ">=1.2.0",
-       "com.wobbz.CommonLib": "^2.0.0"
+       "com.wobbz.superpatcher": ">=1.2.0"
      },
-     "conflictsWith": [
-       "com.otherorg.LegacyHooks"
-     ],
-     "provides": {
-       "debuggingCapability": "1.0.0"
-     }
+     "conflicts": [
+       "com.legacy.debugger"
+     ]
    }
    ```
 
@@ -137,147 +139,185 @@
 
    ```json
    {
-     "enabledByDefault": true,
      "fields": [
        {
-         "key": "verboseLogging",
-         "type": "boolean",
-         "label": "Verbose Logging",
-         "defaultValue": false
-       },
-       {
-         "key": "onlyWhenCharging",
-         "type": "boolean",
-         "label": "Only When Charging",
-         "defaultValue": true
+         "key": "debugLevel",
+         "type": "choice",
+         "label": "Debug Level",
+         "options": ["info", "debug", "verbose"]
        },
        {
          "key": "targetApps",
-         "type": "package_list",
-         "label": "Target Applications",
-         "description": "Select apps to apply hooks to"
+         "type": "app_list",
+         "label": "Target Applications"
        }
      ]
    }
    ```
 
-4. **Resource Overlays**
-   Place overlay resources in standard Android resource structure:
+4. **Analytics Integration**
+   Track performance metrics:
 
-   ```
-   modules/YourFeature/
-     src/main/
-       res/
-         overlay/
-           com.android.systemui/
-             layout/
-               status_bar.xml
-             values/
-               colors.xml
+   ```java
+   try {
+     long trackingId = mAnalyticsManager.trackHookStart(hookId, MODULE_ID, packageName);
+     // hook logic
+     mAnalyticsManager.trackHookEnd(trackingId, true);
+   } catch (Throwable t) {
+     LoggingHelper.error(TAG, "Hook failed", t);
+     mAnalyticsManager.trackHookEnd(trackingId, false);
+   }
    ```
 
-## III. Advanced Features
+## III. Core Features
 
 1. **Hot-Reloading Support**
    Enable development-time hot reloading:
 
    ```java
    @HotReloadable
-   @XposedPlugin(...)
-   public class DevFeatureModule implements IModulePlugin {
+   public class MyModule implements IModulePlugin {
      @Override
      public void onHotReload() {
-       // Clean up old hooks
-       // Re-initialize with new implementation
+       // Clean up existing hooks
+       mUnhooks.values().forEach(XC_MethodHook.Unhook::unhook);
+       mUnhooks.clear();
+       
+       // Reinitialize managers
+       initializeManagers(mModuleContext);
+       
+       // Reinstall hooks
+       hookCoreNetworkApis();
+       hookAppNetworkOperations(lpparam);
      }
    }
    ```
 
-2. **Remote Updates**
-   Configure update sources in `update-config.json`:
+2. **Security Framework**
+   Implement security checks:
 
-   ```json
-   {
-     "updateSources": [
-       {
-         "name": "Official CDN",
-         "url": "https://cdn.wobbz.com/lsposed/modules",
-         "publicKey": "BASE64_ED25519_PUBLIC_KEY"
-       }
-     ],
-     "updateCheckInterval": 86400,
-     "autoUpdate": {
-       "enabled": true,
-       "onlyWhenIdle": true,
-       "requireWifi": true
-     }
+   ```java
+   if (mSecurityManager != null && 
+       !mSecurityManager.shouldAllowConnection(packageName, host, port, SecurityManager.PROTO_TCP)) {
+     throw new SecurityException("Connection blocked by NetworkGuard");
    }
    ```
 
-3. **Built-in Analytics & Crash Reporting**
-   Enable optional telemetry in `telemetry.json`:
+3. **Diagnostics Server**
+   Enable web-based diagnostics:
+
+   ```java
+   DiagnosticsServer.getInstance(context)
+     .addHookEvent(hookId, moduleId, targetPackage, executionTime, success);
+   ```
+
+4. **Logging System**
+   Configure logging in `log-config.json`:
 
    ```json
    {
-     "enabled": false,
-     "collectMetrics": {
-       "hookPerformance": true,
-       "memoryUsage": true,
-       "batteryImpact": true
-     },
-     "crashReporting": {
-       "enabled": true,
-       "includeSystemLogs": false
+     "defaultLevel": "INFO",
+     "tagLevels": {
+       "NetworkGuard": "DEBUG",
+       "IntentMaster": "VERBOSE"
      }
    }
    ```
 
 ---
 
-## IV. Build System Integration
+## IV. Development Workflow
 
-1. **Annotation Processing**
-   Add to `build.gradle`:
+1. **Module Creation**
+   Create new module structure:
 
-   ```groovy
-   dependencies {
-     annotationProcessor 'com.wobbz.lsposed:plugin-processor:1.0.0'
-   }
+   ```
+   modules/NewModule/
+   ├── src/main/java/com/wobbz/newmodule/
+   │   └── NewModule.java           # @XposedPlugin annotated class
+   ├── module-info.json             # Dependencies & metadata
+   └── settings.json               # UI configuration
    ```
 
-2. **Hot-Reload Development Server**
-   Run development server:
+2. **Hot-Reload Development**
+   Enable live code updates:
 
    ```bash
+   # Start hot-reload server
    ./gradlew runDevServer
+
+   # Watch for changes
+   ./gradlew watchModules
    ```
 
-   Enable in your module:
+3. **Testing & Debugging**
+   Use built-in diagnostics:
 
-   ```groovy
-   lsposed {
-     enableHotReload = true
-     devServerPort = 8081
-   }
+   ```bash
+   # View diagnostics dashboard
+   adb forward tcp:8082 tcp:8082
+   # Open http://localhost:8082 in browser
+   ```
+
+4. **Release Build**
+   Create release package:
+
+   ```bash
+   ./gradlew assembleRelease
+   # Outputs signed APK with all modules
    ```
 
 ---
 
-## V. Migration Guide
+## V. Module Integration
 
-1. **From YAML to Annotations**
-   * Replace `descriptor.yaml` with `@XposedPlugin`
-   * Move scope lists into annotation
-   * Gradle task auto-generates necessary files
+1. **Intent Manipulation**
+   Use IntentMaster with DeepIntegrator:
 
-2. **Adding Hot-Reload Support**
-   * Implement `@HotReloadable`
-   * Add cleanup in `onHotReload()`
-   * Configure dev server
+   ```java
+   // Expose target component
+   ComponentConfig config = new ComponentConfig(packageName, componentName, TYPE_ACTIVITY);
+   config.setExported(true);
+   mDeepIntegrator.addComponentConfig(config);
 
-3. **Settings UI Migration**
-   * Convert existing UI to settings schema
-   * Test auto-generated UI in LSPosed Manager
-   * Verify persistence works
+   // Route intents to exposed component
+   IntentRule rule = new IntentRule();
+   rule.setAction("android.intent.action.VIEW");
+   rule.setIntentAction(Action.REDIRECT);
+   rule.getModification().setNewComponent(componentName);
+   mIntentMaster.addRule(rule);
+   ```
+
+2. **Permission Management**
+   Use PermissionOverride with SuperPatcher:
+
+   ```java
+   // Check permission override status
+   Integer status = mPermissionOverride.checkPermissionOverrideStatus(packageName, permission);
+   if (status == PERMISSION_GRANTED) {
+     // Proceed with operation
+   }
+
+   // Use SuperPatcher for deeper modifications if needed
+   if (status == PERMISSION_DENIED) {
+     mSuperPatcher.requestHook(packageName, className, methodName, 
+       parameterTypes, "replace", callback);
+   }
+   ```
+
+3. **Network Security**
+   Integrate NetworkGuard with security framework:
+
+   ```java
+   // Define firewall rules
+   FirewallRule rule = new FirewallRule();
+   rule.type = SecurityManager.RULE_TYPE_BLOCK;
+   rule.destinationPattern = "api.example.com";
+   rule.protocol = SecurityManager.PROTO_TCP;
+   mSecurityManager.addFirewallRule(packageName, rule);
+
+   // Monitor network activity
+   mAnalyticsManager.trackDataUsage(packageName, bytesTransferred);
+   ```
 
 With Android 15 defaults and these best practices baked in, this framework blueprint gives you a single, scalable host for all your LSPosed modules—easy to build, extend, and maintain on your OnePlus 12 running OxygenOS 15.0.

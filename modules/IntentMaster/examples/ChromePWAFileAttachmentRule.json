@@ -1,0 +1,13 @@
+{
+  "name": "Chrome PWA File Attachment Enabler",
+  "enabled": true,
+  "packageName": "com.android.chrome",
+  "action": "android.intent.action.GET_CONTENT",
+  "type": "image/.*|video/.*|audio/.*",
+  "extraMatches": [],
+  "intentAction": "MODIFY",
+  "modification": {
+    "newType": "*/*",
+    "flags": 0
+  }
+} 

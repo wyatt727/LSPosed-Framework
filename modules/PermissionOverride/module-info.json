@@ -1,0 +1,10 @@
+{
+  "dependsOn": {},
+  "conflictsWith": [],
+  "provides": {
+    "permissionOverride": "1.0.0",
+    "signatureBypass": "1.0.0",
+    "reflectionEnhancement": "1.0.0"
+  },
+  "priority": 200
+} 

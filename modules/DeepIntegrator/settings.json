@@ -1,0 +1,52 @@
+{
+  "moduleName": "DeepIntegrator",
+  "moduleDescription": "Exposes app components and modifies intent filters to enable deeper integration between apps",
+  "moduleVersion": "1.0.0",
+  "moduleAuthor": "Wobbz Framework Team",
+  "settings": [
+    {
+      "key": "targetApps",
+      "title": "Target Applications",
+      "summary": "Select which apps to expose components from",
+      "type": "multi_app_selector",
+      "default": []
+    },
+    {
+      "key": "logExposedComponents",
+      "title": "Log Component Access",
+      "summary": "Keep a log of all component access through DeepIntegrator",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "autoExpose",
+      "title": "Auto-Expose Components",
+      "summary": "Automatically expose all components from target apps",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "bypassPermissionChecks",
+      "title": "Bypass Component Permission Checks",
+      "summary": "Allow accessing components that require permissions",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "componentOverrides",
+      "title": "Component Configuration",
+      "summary": "Configure which components to expose and how to modify intent filters",
+      "type": "custom",
+      "defaultJson": "[]",
+      "description": "Each component can be configured with exported status and custom intent filters"
+    },
+    {
+      "key": "componentLogs",
+      "title": "Component Access Logs",
+      "summary": "View logs of component access through DeepIntegrator",
+      "type": "custom",
+      "readonly": true,
+      "defaultJson": "[]"
+    }
+  ]
+} 

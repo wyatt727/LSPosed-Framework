@@ -17,7 +17,8 @@
   - [Module Metadata & Resources](#module-metadata--resources)  
   - [Hook Implementation Patterns](#hook-implementation-patterns)  
 - [🔧 Best Practices](#-best-practices)  
-  - [Android 15 Specific Adjustments](#android-15-specific-adjustments)  
+  - [Android 15 Specific Adjustments](#android-15-specific-adjustments)
+  - [Package Naming Conventions](#package-naming-conventions)
 - [🛠️ Development Workflow](#️-development-workflow)  
 - [⚙️ Getting Started](#️-getting-started)  
   - [Prerequisites](#prerequisites)  
@@ -31,13 +32,18 @@
 
 The **LSPosed Modular Framework** is a modern, feature-rich Android library that:
 
-- Uses **Java annotations** (`@XposedPlugin`) for module metadata and discovery
+- Uses **Java annotations** (`@XposedPlugin`, `@HotReloadable`) for module metadata and lifecycle
+- Provides **JSON-based configuration** for settings UI and dependencies
 - Supports **hot-reload development** without device reboots
-- Provides **auto-generated settings UI** from JSON schemas
 - Manages **module dependencies** and version constraints
 - Handles **remote updates** via CDN with signature verification
-- Packages **resource overlays** automatically
-- Supports **Android 15 (API 35)** with the latest libxposed/shim versions
+- Includes powerful core modules:
+  - **IntentMaster**: Advanced intent manipulation and routing
+  - **NetworkGuard**: Comprehensive network traffic control
+  - **PermissionOverride**: Fine-grained permission management
+  - **DeepIntegrator**: Component exposure and integration
+  - **SuperPatcher**: Low-level system modifications
+  - **DebugAll**: Application debugging utilities
 
 Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compatible with any Android 14+ device.
 
@@ -45,14 +51,30 @@ Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compati
 
 ## ⭐ Features
 
-- 🎯 **Annotation-Driven**: Replace YAML with `@XposedPlugin` for compile-time validation
-- 🔄 **Hot-Reload**: Develop and test changes without rebooting
-- 🎨 **Auto UI**: Generate LSPosed Manager settings from JSON schema
-- 📦 **Smart Dependencies**: Declare and validate module relationships
-- 🚀 **Remote Updates**: Secure, CDN-based module distribution
-- 🎭 **Resource Overlays**: Automatic RRO packaging and management
-- ⚡ **Lean Runtime**: Optimized hook resolution and caching
-- 🔒 **Safe Execution**: Comprehensive error handling and recovery
+- 🎯 **Annotation-Driven Development**: 
+  - `@XposedPlugin` for module metadata
+  - `@HotReloadable` for development workflow
+  - Compile-time validation and type safety
+- 🔄 **Hot-Reload Architecture**: 
+  - Live code updates without reboots
+  - State preservation between reloads
+  - Automatic hook cleanup and reapplication
+- 🎨 **Dynamic Settings UI**: 
+  - JSON schema-based UI generation
+  - Real-time configuration updates
+  - Type-safe settings management
+- 📦 **Dependency System**: 
+  - Version constraints in `module-info.json`
+  - Automatic dependency resolution
+  - Conflict detection and reporting
+- 🔒 **Security Framework**: 
+  - Permission management
+  - Network traffic control
+  - Component access control
+- 📊 **Analytics & Diagnostics**: 
+  - Hook performance metrics
+  - Memory usage tracking
+  - Web-based diagnostics interface
 
 ---
 
@@ -62,29 +84,26 @@ Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compati
 
 ```
 LSPosedFramework/
-├── settings.gradle
-├── build.gradle      ← root ext { xposedApiVersion, minSdk, targetSdk, compileSdk }
-├── framework/        ← core library
-│   ├── build.gradle  ← annotation processor setup
-│   ├── proguard-rules.pro
-│   └── src/
-│       ├── main/java/com/wobbz/framework/
-│       │   ├── annotations/     ← @XposedPlugin, @HotReloadable
-│       │   ├── ui/             ← Settings UI generation
-│       │   ├── updates/        ← Remote update client
-│       │   └── hot-reload/     ← Development server
-│       └── main/resources/
-└── modules/          ← feature sub-modules
-    ├── DebugAll/
-    │   ├── build.gradle
-    │   ├── module-info.json    ← dependencies & conflicts
-    │   ├── settings.json       ← UI configuration
-    │   └── src/main/java/com/wobbz/debugall/
-    │       └── DebugAllModule.java  ← @XposedPlugin annotation
-    └── AdBlocker/
-        ├── build.gradle
-        ├── module-info.json
-        └── src/...
+├── framework/        ← Core library
+│   ├── src/main/java/com/wobbz/framework/
+│   │   ├── annotations/     ← @XposedPlugin, @HotReloadable
+│   │   ├── analytics/      ← Performance tracking
+│   │   ├── security/       ← Security management
+│   │   ├── development/    ← Development tools
+│   │   └── ui/            ← Settings UI generation
+│   └── src/main/resources/
+│       └── META-INF/xposed/
+├── modules/          ← Core modules
+│   ├── IntentMaster/
+│   │   ├── module-info.json    ← Dependencies & metadata
+│   │   ├── settings.json       ← UI configuration
+│   │   └── src/main/.../IntentMasterModule.java
+│   ├── NetworkGuard/
+│   ├── PermissionOverride/
+│   ├── DeepIntegrator/
+│   ├── SuperPatcher/
+│   └── DebugAll/
+└── docs/            ← Documentation
 ```
 
 ### Module Metadata & Resources
@@ -93,10 +112,12 @@ LSPosedFramework/
 
 ```java
 @XposedPlugin(
-  id = "com.wobbz.DebugAll",
+  id = "com.wobbz.debugall",
   name = "Debug-All",
-  description = "Force-enable DEBUGGABLE on all apps",
-  scope = {"com.android.systemui", "com.chrome.browser"}
+  description = "Force-enable DEBUGGABLE on apps",
+  version = "1.0.0",
+  scope = {"android", "com.android.systemui"},
+  permissions = {"android.permission.READ_LOGS"}
 )
 @HotReloadable
 public class DebugAllModule implements IModulePlugin {
@@ -104,15 +125,19 @@ public class DebugAllModule implements IModulePlugin {
 }
 ```
 
-* **Dependencies & Conflicts** (`module-info.json`):
+* **Dependencies & Metadata** (`module-info.json`):
 
 ```json
 {
+  "id": "com.wobbz.debugall",
+  "version": "1.0.0",
+  "minApi": 34,
+  "maxApi": 35,
   "dependsOn": {
-    "com.wobbz.CoreUtils": ">=1.2.0"
+    "com.wobbz.superpatcher": ">=1.2.0"
   },
-  "conflictsWith": [
-    "com.otherorg.LegacyHooks"
+  "conflicts": [
+    "com.legacy.debugger"
   ]
 }
 ```
@@ -127,6 +152,11 @@ public class DebugAllModule implements IModulePlugin {
       "type": "choice",
       "label": "Debug Level",
       "options": ["info", "debug", "verbose"]
+    },
+    {
+      "key": "targetApps",
+      "type": "app_list",
+      "label": "Target Applications"
     }
   ]
 }
@@ -145,60 +175,102 @@ public class MyModule implements IModulePlugin {
 }
 ```
 
-2. **Safe Execution & Logging**
+2. **Safe Execution & Analytics**
 ```java
 try {
+  long trackingId = mAnalyticsManager.trackHookStart(hookId, MODULE_ID, packageName);
   // hook logic
+  mAnalyticsManager.trackHookEnd(trackingId, true);
 } catch (Throwable t) {
-  LoggingHelper.error("MyModule", "Hook failed", t);
+  LoggingHelper.error(TAG, "Hook failed", t);
+  mAnalyticsManager.trackHookEnd(trackingId, false);
 }
 ```
 
-3. **Resource Overlays**
-```
-res/overlay/com.android.systemui/
-  layout/
-    status_bar.xml
-  values/
-    colors.xml
+3. **Security Integration**
+```java
+if (mSecurityManager != null && 
+    !mSecurityManager.shouldAllowConnection(packageName, host, port, SecurityManager.PROTO_TCP)) {
+  throw new SecurityException("Connection blocked by NetworkGuard");
+}
 ```
 
 ---
 
 ## 🔧 Best Practices
 
-* **Development Workflow**
-  * Enable hot-reload in `build.gradle`
-  * Use `./gradlew runDevServer` for live updates
-  * Monitor changes via LoggingHelper
+### Development Workflow
 
-* **Dependency Management**
-  * Declare version constraints in `module-info.json`
-  * Use semantic versioning
-  * Handle conflicts explicitly
+1. **Create New Module Structure**
 
-* **Settings UI**
-  * Define UI schema in `settings.json`
-  * Use typed fields for validation
-  * Support i18n via resource strings
+```bash
+modules/NewModule/
+├── src/main/java/com/wobbz/newmodule/
+│   └── NewModule.java           # @XposedPlugin annotated class
+├── module-info.json             # Dependencies & metadata
+└── settings.json               # UI configuration
+```
 
-* **Remote Updates**
-  * Sign updates with Ed25519
-  * Support delta downloads
-  * Handle background updates
+2. **Add Module Configuration**
 
-* **Resource Overlays**
-  * Follow Android RRO conventions
-  * Test on multiple Android versions
-  * Handle overlay conflicts
+```java
+@XposedPlugin(
+  id = "com.wobbz.newmodule",
+  name = "New-Module"
+)
+@HotReloadable
+public class NewModule implements IModulePlugin {
+  // Implementation
+}
+```
+
+3. **Configure Dependencies**
+
+```json
+{
+  "dependsOn": {
+    "com.wobbz.superpatcher": "^2.0.0"
+  }
+}
+```
+
+4. **Define Settings UI**
+
+```json
+{
+  "fields": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enable Feature"
+    }
+  ]
+}
+```
+
+5. **Development**
+```bash
+# Start hot-reload server
+./gradlew runDevServer
+
+# Watch for changes
+./gradlew watchModules
+```
+
+### Package Naming Conventions
+
+* **Use lowercase everywhere**: 
+  * Framework: `com.wobbz.framework.*`
+  * Modules: `com.wobbz.debugall`, `com.wobbz.networkguard`
+  * Module IDs in annotations: `com.wobbz.debugall`
 
 ### Android 15 Specific Adjustments
 
-* **Hook Signatures** moved from `framework.jar` to `framework.art`—search both
-* **Hidden-API Enforcement**—use LSPosed's built-in allowlist
-* **SELinux Contexts**—handle overlay permissions
-* **Vendor Overlays**—use `overlayfs` when possible
-* **Scope Updates**—manage ART cache invalidation
+* **Hook Signatures**: Use `framework.art` for Android 15
+* **Hidden-API Enforcement**: Leverage LSPosed's allowlist
+* **SELinux Contexts**: Handle overlay permissions
+* **Vendor Overlays**: Use `overlayfs` when possible
+* **Scope Updates**: Manage ART cache invalidation
 
 ---
 
@@ -214,7 +286,7 @@ res/overlay/com.android.systemui/
 
 ```java
 @XposedPlugin(
-  id = "com.wobbz.NewFeature",
+  id = "com.wobbz.newfeature",
   name = "New Feature"
 )
 @HotReloadable
@@ -228,7 +300,7 @@ public class NewFeatureModule implements IModulePlugin {
 ```json
 {
   "dependsOn": {
-    "com.wobbz.CoreUtils": "^2.0.0"
+    "com.wobbz.coreutils": "^2.0.0"
   }
 }
 ```
@@ -269,7 +341,7 @@ public class NewFeatureModule implements IModulePlugin {
 ### Prerequisites
 
 * Android Studio 2023.1+
-* JDK 8+
+* JDK 17+
 * Android SDK (API 35)
 * LSPosed Framework 1.0+
 

@@ -1,0 +1,11 @@
+{
+  "dependsOn": {
+    "com.wobbz.SuperPatcher": "1.0.0"
+  },
+  "conflictsWith": [],
+  "provides": {
+    "componentExposure": "1.0.0",
+    "intentFiltersModification": "1.0.0"
+  },
+  "priority": 200
+} 
