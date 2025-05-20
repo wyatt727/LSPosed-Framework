@@ -6,54 +6,71 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Annotation to mark a class as an LSPosed plugin module.
- * This will be processed at build time to generate required metadata.
+ * Defines essential metadata for an Xposed module. This annotation replaces the traditional
+ * `xposed_init` file and `module.prop` for basic information, enabling compile-time
+ * validation and easier management.
+ * 
+ * <p>Must be applied to a class that implements {@code io.github.libxposed.api.IXposedModule}.</p>
+ * 
+ * <p>Example usage:</p>
+ * <pre>
+ * &#64;XposedPlugin(
+ *     name = "My Awesome Module",
+ *     version = "1.0.1",
+ *     description = "Demonstrates framework features.",
+ *     author = "WobbzDev",
+ *     scope = {"com.android.settings"}
+ * )
+ * &#64;HotReloadable
+ * public class MyAwesomeModule implements IXposedModule {
+ *     // ... module implementation ...
+ * }
+ * </pre>
  */
-@Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
+@Retention(RetentionPolicy.CLASS)
 public @interface XposedPlugin {
-    /**
-     * Unique identifier for the module
-     */
-    String id();
     
     /**
-     * Display name of the module
+     * The human-readable name of the module.
+     * 
+     * @return Module name
      */
     String name();
     
     /**
-     * Module description
+     * The version string of the module (e.g., "1.0.0").
+     * 
+     * @return Module version
+     */
+    String version();
+    
+    /**
+     * A brief description of what the module does.
+     * 
+     * @return Module description (default: empty string)
      */
     String description() default "";
     
     /**
-     * Version string in semver format
-     */
-    String version() default "1.0.0";
-    
-    /**
-     * Version code (integer)
-     */
-    int versionCode() default 1;
-    
-    /**
-     * Package name for the module
-     */
-    String packageName() default "";
-    
-    /**
-     * List of package names to target with this module
-     */
-    String[] scope() default {};
-    
-    /**
-     * Author of the module
+     * The author(s) of the module.
+     * 
+     * @return Module author(s) (default: empty string)
      */
     String author() default "";
     
     /**
-     * List of permissions required by this module
+     * An array of package names that this module primarily targets.
+     * This helps in organizing and potentially filtering modules in a management UI.
+     * 
+     * @return Target package names (default: empty array)
      */
-    String[] permissions() default {};
+    String[] scope() default {};
+    
+    /**
+     * The minimum version of the Wobbz LSPosed Framework this module is compatible with.
+     * 
+     * @return Minimum framework version (default: 1)
+     */
+    int minFrameworkVersion() default 1;
 } 

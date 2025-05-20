@@ -11,7 +11,7 @@ LSPosed-Modules/
 ├── settings.gradle           # Project settings
 ├── gradle.properties         # Gradle properties
 ├── libxposed-api/            # Local libxposed API source
-├── framework/                # Core framework module
+├── framework/                # Core framework library
 └── modules/                  # Feature modules directory
     ├── SuperPatcher/         # Core functionality module
     ├── DeepIntegrator/       # System integration module
@@ -37,32 +37,23 @@ ext {
 
 ### Framework Module (`framework/build.gradle`)
 ```groovy
-apply plugin: 'com.android.application'
+apply plugin: 'com.android.library'
 
 android {
     compileSdkVersion rootProject.ext.compileSdk
+    namespace "com.wobbz.framework"
     
     defaultConfig {
-        applicationId "com.wobbz.lspf"
         minSdkVersion rootProject.ext.minSdk
         targetSdkVersion rootProject.ext.targetSdk
         versionCode 1
         versionName "1.0.0"
-        
-        // Metadata for LSPosed
-        manifestPlaceholders = [
-            moduleDescription: "LSPosed Modular Framework",
-            moduleVersion: "1.0.0",
-            moduleAuthor: "WobbZ"
-        ]
     }
     
     compileOptions {
         sourceCompatibility rootProject.ext.javaVersion
         targetCompatibility rootProject.ext.javaVersion
     }
-    
-    // ... other Android configuration
 }
 
 dependencies {
@@ -70,7 +61,7 @@ dependencies {
     compileOnly project(':libxposed-api:api')
     
     // Annotation processor for module discovery
-    annotationProcessor "com.wobbz.lspf:processor:${rootProject.ext.annotationProcessor}"
+    annotationProcessor "com.wobbz.framework:processor:${rootProject.ext.annotationProcessor}"
     
     // ... other dependencies
 }
@@ -104,7 +95,7 @@ dependencies {
     compileOnly project(':libxposed-api:api')
     
     // Annotation processor
-    annotationProcessor "com.wobbz.lspf:processor:${rootProject.ext.annotationProcessor}"
+    annotationProcessor "com.wobbz.framework:processor:${rootProject.ext.annotationProcessor}"
     
     // ... other dependencies
 }
@@ -112,36 +103,29 @@ dependencies {
 
 ### Framework Directory Structure (`framework/src/main/`)
 ```
-java/com/wobbz/lspf/
-├── FrameworkModule.java                   # Main entry point
-├── annotation/                            # Annotation classes
-├── config/                                # Configuration handling
-│   ├── ConfigManager.java
-│   └── SettingsHelper.java
-├── hook/                                  # Hook utilities
-│   ├── HookManager.java
-│   └── HookRegistry.java
-├── module/                                # Module management
-│   ├── ModuleLoader.java
-│   └── ModuleRegistry.java
+java/com/wobbz/framework/
+├── PluginManager.java                     # Manages plugins, core logic
+├── IModulePlugin.java                     # Interface for feature modules
+├── IHotReloadable.java                    # Interface for hot-reloading
+├── annotation/                            # Annotation classes (e.g., @XposedPlugin)
+├── processor/                             # Annotation processors
+├── security/                              # Security framework components
 ├── ui/                                    # Settings UI generation
-│   ├── SettingsActivity.java
-│   └── SettingsGenerator.java
-├── security/                              # Security framework
-│   ├── ModuleSecurity.java
-│   └── UpdateVerifier.java
-├── update/                                # Remote update system
-│   ├── UpdateChecker.java
-│   └── UpdateInstaller.java
-├── dev/                                   # Development tools
-│   ├── HotReloadServer.java
-│   └── DiagnosticsServer.java
-└── util/                                  # Utilities
-    ├── Logger.java
-    └── ResourceHelper.java
+├── updates/                               # Remote update system
+├── overlays/                              # Resource overlay handling
+├── development/                           # Development tools (e.g., HotReloadServer)
+├── generated/                             # Auto-generated code
+├── features/                              # Framework-specific features
+├── diagnostics/                           # Diagnostic utilities
+├── permissions/                           # Permission management
+├── analytics/                             # Analytics integration
+└── util/                                  # General utility classes (conceptual, may be sub-packaged)
+    // Specific files like Logger.java, ConfigManager.java, HookManager.java
+    // might be within these packages or refactored.
 
 resources/META-INF/xposed/
-├── module.prop.tpl                        # Module property template
+├── module.prop.tpl                        # Template for module.prop (should use com.wobbz.lsposedframework as ID)
+├── xposed_init.tpl                        # Template for xposed_init (pointing to com.wobbz.framework.generated.XposedEntryPoint)
 ├── features.json                          # Framework features
 └── log-config.json                        # Logging configuration
 ```

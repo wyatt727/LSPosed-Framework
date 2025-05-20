@@ -47,11 +47,17 @@ android {
     }
   }
   
-  // Include generated resources in the build output
+  // Include generated resources and assets in the build output
   sourceSets {
     main {
       resources {
         srcDirs += "${buildDir}/generated/resources/xposed"
+      }
+      assets {
+        srcDirs += "${buildDir}/generated/assets"
+      }
+      java {
+        srcDirs += "${buildDir}/generated/source/xposed"
       }
     }
   }
@@ -94,22 +100,16 @@ repositories {
 }
 
 dependencies {
-  // XPosed APIs - use the local AAR file
-  compileOnly files('libs/xposed-api.aar')
+  // XPosed APIs - use the local project dependency (preferred) or fall back to AAR
+  compileOnly project(':libxposed-api:api')
+  // Fallback if project reference fails
+  // compileOnly files('libs/xposed-api.aar')
   
   // For annotation processing
   implementation 'androidx.annotation:annotation:1.5.0'
   
-  // Google Auto Service for annotation processing - REMOVED
-  // compileOnly 'com.google.auto.service:auto-service-annotations:1.0.1'
-  // annotationProcessor 'com.google.auto.service:auto-service:1.1.1'
-  
-  // Add Android tools for annotation processing
-  // compileOnly 'org.androidannotations:androidannotations-api:4.8.0'
-  // annotationProcessor 'org.androidannotations:androidannotations:4.8.0'
-  
-  // Remove tools.jar dependency as it's not available in newer JDKs
-  // compileOnly files("${System.getProperty('java.home')}/../lib/tools.jar")
+  // Annotation processor for XposedPlugin and HotReloadable annotations
+  annotationProcessor project(':framework:processor')
   
   // Square's JavaPoet for code generation
   implementation 'com.squareup:javapoet:1.13.0'
@@ -121,6 +121,12 @@ dependencies {
   // Android UI components and layouts
   implementation 'androidx.appcompat:appcompat:1.6.1'
   implementation 'androidx.core:core-ktx:1.9.0'
+  
+  // Reflection utilities
+  implementation 'org.reflections:reflections:0.10.2'
+  
+  // FileWatcher dependencies for hot-reload
+  implementation 'io.methvin:directory-watcher:0.15.0'
   
   // Testing dependencies
   testImplementation 'junit:junit:4.13.2'
@@ -188,11 +194,10 @@ tasks.register('processAnnotations') {
     // Create output directories
     def outputDir = file("${buildDir}/generated/source/xposed")
     def resourcesDir = file("${buildDir}/generated/resources/xposed")
+    def assetsDir = file("${buildDir}/generated/assets")
     outputDir.mkdirs()
     resourcesDir.mkdirs()
-    
-    // This approach can't directly use our Java classes since they're not compiled yet
-    // Instead, we'll manually create the files with the required content
+    assetsDir.mkdirs()
     
     // Create module.prop file
     def modulePropFile = new File(resourcesDir, "module.prop")
@@ -201,11 +206,14 @@ name=LSPosed Framework
 version=1.0.0
 versionCode=1
 author=Wobbz
-description=A framework for LSPosed modules
+description=A framework for LSPosed modules with annotation processing and hot-reloading
 """
     
-    // Create xposed_init file
-    def xposedInitFile = new File(resourcesDir, "xposed_init")
+    // Create xposed_init file with our entry point class
+    // The actual modules will be loaded by our ModuleDiscovery class
+    def xposedInitDir = new File(assetsDir, "assets")
+    xposedInitDir.mkdirs()
+    def xposedInitFile = new File(xposedInitDir, "xposed_init")
     xposedInitFile.text = "com.wobbz.framework.generated.XposedEntryPoint"
     
     println "Created module.prop and xposed_init files in ${resourcesDir}"
@@ -221,7 +229,48 @@ tasks.register('generateSettingsUI') {
   
   doLast {
     println "Generating settings UI..."
-    // This will be implemented with actual code later
+    
+    def modulesDir = new File("${rootProject.projectDir}/modules")
+    def generatedUIDir = new File("${buildDir}/generated/ui")
+    generatedUIDir.mkdirs()
+    
+    if (modulesDir.exists() && modulesDir.isDirectory()) {
+      modulesDir.eachDir { moduleDir ->
+        def settingsFile = new File(moduleDir, "settings.json")
+        if (settingsFile.exists()) {
+          println "Processing settings for module: ${moduleDir.name}"
+          
+          try {
+            def settingsJson = new groovy.json.JsonSlurper().parse(settingsFile)
+            def moduleName = moduleDir.name
+            
+            // Generate settings UI code based on JSON schema
+            def uiBuilderFile = new File(generatedUIDir, "${moduleName}SettingsUI.java")
+            uiBuilderFile.text = """package com.wobbz.framework.ui.generated;
+
+import android.content.Context;
+import android.view.View;
+import android.widget.LinearLayout;
+import com.wobbz.framework.ui.SettingsUIFactory;
+
+/**
+ * Auto-generated settings UI for ${moduleName} module
+ * Generated from settings.json schema
+ */
+public class ${moduleName}SettingsUI {
+    public static View createSettingsUI(Context context) {
+        // Generated UI code based on ${moduleName}/settings.json
+        return SettingsUIFactory.createFromJson(context, "${moduleDir.absolutePath}/settings.json");
+    }
+}
+"""
+            println "Generated UI for ${moduleName}"
+          } catch (Exception e) {
+            println "Error processing settings for ${moduleDir.name}: ${e.message}"
+          }
+        }
+      }
+    }
   }
 }
 
@@ -231,7 +280,118 @@ tasks.register('checkDependencies') {
   
   doLast {
     println "Checking module dependencies..."
-    // This will be implemented with actual code later
+    
+    def modulesDir = new File("${rootProject.projectDir}/modules")
+    def modules = [:]
+    def dependencyGraph = [:]
+    
+    if (modulesDir.exists() && modulesDir.isDirectory()) {
+      modulesDir.eachDir { moduleDir ->
+        def infoFile = new File(moduleDir, "module-info.json")
+        if (infoFile.exists()) {
+          try {
+            def info = new groovy.json.JsonSlurper().parse(infoFile)
+            def id = info.id
+            def version = info.version
+            
+            modules[id] = [
+              dir: moduleDir.name,
+              version: version
+            ]
+            
+            // Record dependencies
+            if (info.dependencies) {
+              dependencyGraph[id] = info.dependencies.collect { dep ->
+                [id: dep.id, version: dep.version]
+              }
+            } else {
+              dependencyGraph[id] = []
+            }
+            
+          } catch (Exception e) {
+            println "Error processing module-info.json for ${moduleDir.name}: ${e.message}"
+          }
+        }
+      }
+    }
+    
+    // Check for missing dependencies
+    dependencyGraph.each { moduleId, dependencies ->
+      dependencies.each { dep ->
+        if (!modules.containsKey(dep.id)) {
+          println "WARNING: Module ${moduleId} depends on ${dep.id} which is not found in the project"
+        } else {
+          // Check version constraints
+          def requiredVersion = dep.version
+          def actualVersion = modules[dep.id].version
+          
+          if (requiredVersion && requiredVersion.startsWith(">=")) {
+            def minVersion = requiredVersion.substring(2)
+            if (!isVersionGreaterOrEqual(actualVersion, minVersion)) {
+              println "WARNING: Module ${moduleId} requires ${dep.id} >= ${minVersion}, but found ${actualVersion}"
+            }
+          }
+        }
+      }
+    }
+    
+    // Check for circular dependencies
+    checkCircularDependencies(dependencyGraph)
+  }
+}
+
+// Helper to check circular dependencies
+def checkCircularDependencies(dependencyGraph) {
+  dependencyGraph.each { moduleId, _ ->
+    def visited = []
+    def path = []
+    if (hasCycle(moduleId, dependencyGraph, visited, path)) {
+      println "ERROR: Circular dependency detected: ${path.join(' -> ')}"
+    }
+  }
+}
+
+def hasCycle(moduleId, graph, visited, path) {
+  if (path.contains(moduleId)) {
+    path.add(moduleId)
+    return true
+  }
+  
+  if (visited.contains(moduleId)) {
+    return false
+  }
+  
+  visited.add(moduleId)
+  path.add(moduleId)
+  
+  def deps = graph[moduleId] ?: []
+  for (dep in deps) {
+    if (hasCycle(dep.id, graph, visited, path)) {
+      return true
+    }
+  }
+  
+  path.remove(moduleId)
+  return false
+}
+
+def isVersionGreaterOrEqual(version, minVersion) {
+  try {
+    def v1Parts = version.tokenize('.')
+    def v2Parts = minVersion.tokenize('.')
+    
+    for (int i = 0; i < Math.min(v1Parts.size(), v2Parts.size()); i++) {
+      def v1 = v1Parts[i].toInteger()
+      def v2 = v2Parts[i].toInteger()
+      
+      if (v1 > v2) return true
+      if (v1 < v2) return false
+    }
+    
+    return v1Parts.size() >= v2Parts.size()
+  } catch (Exception e) {
+    println "Error comparing versions: ${version} vs ${minVersion}"
+    return false
   }
 }
 
@@ -241,17 +401,165 @@ tasks.register('packageOverlays') {
   
   doLast {
     println "Packaging resource overlays..."
-    // This will be implemented with actual code later
+    
+    def overlaysDir = new File("${projectDir}/src/main/overlays")
+    def outputDir = new File("${buildDir}/generated/overlays")
+    outputDir.mkdirs()
+    
+    if (overlaysDir.exists() && overlaysDir.isDirectory()) {
+      // Locate the Android SDK
+      def androidSdkPath = android.sdkDirectory
+      def buildToolsPath = "${androidSdkPath}/build-tools/${android.buildToolsVersion}"
+      def aaptPath = new File("${buildToolsPath}/aapt2")
+      
+      if (!aaptPath.exists()) {
+        throw new GradleException("AAPT2 not found at ${aaptPath}. Please ensure your Android SDK is properly configured.")
+      }
+      
+      overlaysDir.eachDir { targetPackageDir ->
+        def targetPackage = targetPackageDir.name
+        println "Processing overlays for target package: ${targetPackage}"
+        
+        def overlayApkDir = new File(outputDir, targetPackage)
+        overlayApkDir.mkdirs()
+        
+        // Copy overlay resources
+        copy {
+          from targetPackageDir
+          into overlayApkDir
+          exclude "AndroidManifest.xml" // We'll create our own
+        }
+        
+        // Generate AndroidManifest.xml for the overlay
+        def manifestFile = new File(overlayApkDir, "AndroidManifest.xml")
+        manifestFile.text = """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.wobbz.framework.overlay.${targetPackage.replace('.', '_')}">
+    
+    <overlay
+        android:targetPackage="${targetPackage}"
+        android:isStatic="false"
+        android:priority="9999" />
+        
+    <application android:hasCode="false" />
+</manifest>
+"""
+        
+        // Compile resources with AAPT2
+        def resDir = new File(overlayApkDir, "res")
+        def compiledResDir = new File(overlayApkDir, "compiled_res")
+        compiledResDir.mkdirs()
+        
+        if (resDir.exists() && resDir.isDirectory()) {
+          resDir.eachFileRecurse { file ->
+            if (file.isFile()) {
+              def relativePath = file.parentFile.absolutePath.substring(resDir.absolutePath.length())
+              def outputFile = new File(compiledResDir, "${relativePath}/${file.name}.flat")
+              outputFile.parentFile.mkdirs()
+              
+              def compileCmd = "${aaptPath.absolutePath} compile -o ${outputFile.absolutePath} ${file.absolutePath}"
+              println "Compiling: ${file.name}"
+              def compileProcess = compileCmd.execute()
+              compileProcess.waitFor()
+              if (compileProcess.exitValue() != 0) {
+                println "Warning: Failed to compile resource ${file.absolutePath}: ${compileProcess.err.text}"
+              }
+            }
+          }
+          
+          // Link resources into APK
+          def overlayApk = new File(outputDir, "${targetPackage.replace('.', '_')}_overlay.apk")
+          def linkCmd = "${aaptPath.absolutePath} link -o ${overlayApk.absolutePath} "
+          linkCmd += "--manifest ${manifestFile.absolutePath} "
+          linkCmd += "-I ${androidSdkPath}/platforms/android-${android.compileSdkVersion}/android.jar "
+          linkCmd += "--auto-add-overlay "
+          
+          // Add all compiled resources
+          compiledResDir.eachFileRecurse { file ->
+            if (file.isFile() && file.name.endsWith(".flat")) {
+              linkCmd += "${file.absolutePath} "
+            }
+          }
+          
+          println "Linking resources for ${targetPackage} overlay"
+          def linkProcess = linkCmd.execute()
+          linkProcess.waitFor()
+          if (linkProcess.exitValue() != 0) {
+            println "Error: Failed to link overlay APK for ${targetPackage}: ${linkProcess.err.text}"
+          } else {
+            println "Successfully created overlay APK for ${targetPackage}: ${overlayApk.absolutePath}"
+          }
+        } else {
+          println "No resources found for ${targetPackage} overlay"
+        }
+      }
+    } else {
+      println "No overlays directory found at ${overlaysDir}"
+    }
   }
 }
 
 tasks.register('runDevServer') {
   group = 'framework'
-  description = 'Run hot-reload development server'
+  description = 'Run hot-reload development server and establish connection to device'
   
   doLast {
     println "Starting hot-reload development server..."
-    // This will be implemented with actual code later
+    
+    // Check that we have ADB
+    if (!project.ext.hotSwap.adbPath) {
+      throw new GradleException("Could not find ADB. Make sure Android SDK is properly set up.")
+    }
+    
+    def adbPath = project.ext.hotSwap.adbPath
+    def targetDevice = project.ext.hotSwap.targetDevice
+    def deviceArg = targetDevice ? "-s ${targetDevice}" : ""
+    def modulePort = project.hasProperty('port') ? project.property('port') : 8081
+    
+    // Check for connected devices
+    def deviceCheckCmd = "${adbPath} ${deviceArg} devices"
+    def deviceProcess = deviceCheckCmd.execute()
+    deviceProcess.waitFor()
+    def deviceOutput = deviceProcess.text
+    
+    // Ensure at least one device is connected
+    if (!deviceOutput.contains("\tdevice")) {
+      throw new GradleException("No devices connected. Connect a device and try again.")
+    }
+    
+    // Set up port forwarding for the hot-reload server
+    println "Setting up port forwarding from device port ${modulePort} to localhost:${modulePort}..."
+    def forwardCmd = "${adbPath} ${deviceArg} forward tcp:${modulePort} tcp:${modulePort}"
+    def forwardProcess = forwardCmd.execute()
+    forwardProcess.waitFor()
+    if (forwardProcess.exitValue() != 0) {
+      throw new GradleException("Failed to set up port forwarding: ${forwardProcess.err.text}")
+    }
+    
+    // Set up file watcher for hot-reload
+    // This is a simple implementation - for a real implementation, you'd use a file watching library
+    println "Starting file watcher for hot-reload..."
+    
+    // Run FileWatcher class in a separate JVM
+    def fileWatcherTask = tasks.register('fileWatcherTask', JavaExec) {
+      mainClass = 'com.wobbz.framework.development.FileWatcher'
+      classpath = sourceSets.main.runtimeClasspath
+      args = [
+        project.projectDir.absolutePath, // Source directory to watch
+        modulePort,                      // Port to connect to device
+        adbPath,                         // Path to ADB
+        deviceArg                        // Device arguments
+      ]
+    }
+    
+    // Run the file watcher task
+    fileWatcherTask.get().exec()
+    
+    println "Development server started. Hot-reload is now active."
+    println "Press Ctrl+C to stop the server."
+    
+    // Keep the Gradle task running until interrupted
+    Thread.sleep(Long.MAX_VALUE)
   }
 }
 
@@ -261,27 +569,165 @@ tasks.register('buildUpdate') {
   
   doLast {
     println "Building update package..."
-    // This will be implemented with actual code later
+    
+    def outputDir = file("${buildDir}/outputs/update")
+    outputDir.mkdirs()
+    
+    def versionCode = android.defaultConfig.versionCode ?: 1
+    def versionName = android.defaultConfig.versionName ?: "1.0.0"
+    def updateFile = new File(outputDir, "framework-update-${versionName}.zip")
+    
+    // Create a ZIP containing the framework AAR and module AARs
+    ant.zip(destfile: updateFile) {
+      fileset(dir: "${buildDir}/outputs/aar", includes: "framework-release.aar")
+      
+      // Include available modules
+      def modulesDir = new File("${rootProject.projectDir}/modules")
+      if (modulesDir.exists() && modulesDir.isDirectory()) {
+        modulesDir.eachDir { moduleDir ->
+          def moduleAar = new File(moduleDir, "build/outputs/aar/${moduleDir.name}-release.aar")
+          if (moduleAar.exists()) {
+            fileset(file: moduleAar.absolutePath)
+          }
+        }
+      }
+      
+      // Include update metadata
+      zipfileset(dir: "${buildDir}/generated/update", includes: "update-info.json")
+    }
+    
+    // Create update info JSON with version, changelog, etc.
+    def updateInfoDir = new File("${buildDir}/generated/update")
+    updateInfoDir.mkdirs()
+    def updateInfoFile = new File(updateInfoDir, "update-info.json")
+    
+    def updateInfo = [
+      version: versionName,
+      versionCode: versionCode,
+      releaseDate: new Date().format("yyyy-MM-dd"),
+      minSdkVersion: android.defaultConfig.minSdkVersion.apiLevel,
+      targetSdkVersion: android.defaultConfig.targetSdkVersion.apiLevel
+    ]
+    
+    updateInfoFile.text = new groovy.json.JsonBuilder(updateInfo).toPrettyString()
+    
+    println "Update package created at ${updateFile.absolutePath}"
   }
 }
 
 tasks.register('signUpdate') {
   group = 'framework'
   description = 'Sign update package with Ed25519 key'
+  dependsOn 'buildUpdate'
   
   doLast {
     println "Signing update package..."
-    // This will be implemented with actual code later
+    
+    def outputDir = file("${buildDir}/outputs/update")
+    def versionName = android.defaultConfig.versionName ?: "1.0.0"
+    def updateFile = new File(outputDir, "framework-update-${versionName}.zip")
+    def signatureFile = new File(outputDir, "framework-update-${versionName}.zip.sig")
+    
+    if (!updateFile.exists()) {
+      throw new GradleException("Update package not found at ${updateFile.absolutePath}")
+    }
+    
+    // Look for signing key
+    def keyFile = file("${rootProject.projectDir}/signing-key.pem")
+    if (!keyFile.exists()) {
+      // Generate a new key if one doesn't exist
+      println "Signing key not found, generating a new one..."
+      
+      def keyGenCmd = "openssl genpkey -algorithm ed25519 -out ${keyFile.absolutePath}"
+      def keyGenProcess = keyGenCmd.execute()
+      keyGenProcess.waitFor()
+      if (keyGenProcess.exitValue() != 0) {
+        throw new GradleException("Failed to generate signing key: ${keyGenProcess.err.text}")
+      }
+      
+      println "Generated new signing key at ${keyFile.absolutePath}"
+    }
+    
+    // Sign the update package using OpenSSL
+    def signCmd = "openssl pkeyutl -sign -inkey ${keyFile.absolutePath} -in ${updateFile.absolutePath} -out ${signatureFile.absolutePath}"
+    def signProcess = signCmd.execute()
+    signProcess.waitFor()
+    if (signProcess.exitValue() != 0) {
+      throw new GradleException("Failed to sign update package: ${signProcess.err.text}")
+    }
+    
+    println "Update package signed, signature saved to ${signatureFile.absolutePath}"
   }
 }
 
 tasks.register('uploadToCDN') {
   group = 'framework'
   description = 'Upload update package to CDN'
+  dependsOn 'signUpdate'
   
   doLast {
     println "Uploading update package to CDN..."
-    // This will be implemented with actual code later
+    
+    def outputDir = file("${buildDir}/outputs/update")
+    def versionName = android.defaultConfig.versionName ?: "1.0.0"
+    def updateFile = new File(outputDir, "framework-update-${versionName}.zip")
+    def signatureFile = new File(outputDir, "framework-update-${versionName}.zip.sig")
+    
+    if (!updateFile.exists() || !signatureFile.exists()) {
+      throw new GradleException("Update package or signature not found")
+    }
+    
+    // Read CDN credentials from properties file or environment variables
+    def cdnProperties = file("${rootProject.projectDir}/cdn.properties")
+    def cdnUrl = ""
+    def cdnUser = ""
+    def cdnPass = ""
+    
+    if (cdnProperties.exists()) {
+      def props = new Properties()
+      cdnProperties.withInputStream { stream -> props.load(stream) }
+      cdnUrl = props.getProperty("cdn.url")
+      cdnUser = props.getProperty("cdn.user")
+      cdnPass = props.getProperty("cdn.pass")
+    } else {
+      cdnUrl = System.getenv("CDN_URL")
+      cdnUser = System.getenv("CDN_USER")
+      cdnPass = System.getenv("CDN_PASS")
+    }
+    
+    if (!cdnUrl) {
+      throw new GradleException("CDN URL not specified. Set it in cdn.properties or CDN_URL environment variable.")
+    }
+    
+    // Upload files using curl
+    def uploadUpdateCmd = "curl -X PUT -T ${updateFile.absolutePath} "
+    if (cdnUser && cdnPass) {
+      uploadUpdateCmd += "-u ${cdnUser}:${cdnPass} "
+    }
+    uploadUpdateCmd += "${cdnUrl}/updates/framework-update-${versionName}.zip"
+    
+    println "Uploading update package..."
+    def uploadUpdateProcess = uploadUpdateCmd.execute()
+    uploadUpdateProcess.waitFor()
+    if (uploadUpdateProcess.exitValue() != 0) {
+      throw new GradleException("Failed to upload update package: ${uploadUpdateProcess.err.text}")
+    }
+    
+    def uploadSigCmd = "curl -X PUT -T ${signatureFile.absolutePath} "
+    if (cdnUser && cdnPass) {
+      uploadSigCmd += "-u ${cdnUser}:${cdnPass} "
+    }
+    uploadSigCmd += "${cdnUrl}/updates/framework-update-${versionName}.zip.sig"
+    
+    println "Uploading signature..."
+    def uploadSigProcess = uploadSigCmd.execute()
+    uploadSigProcess.waitFor()
+    if (uploadSigProcess.exitValue() != 0) {
+      throw new GradleException("Failed to upload signature: ${uploadSigProcess.err.text}")
+    }
+    
+    println "Upload complete. Update package is now available at:"
+    println "${cdnUrl}/updates/framework-update-${versionName}.zip"
   }
 }
 

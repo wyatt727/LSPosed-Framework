@@ -2,16 +2,23 @@
 
 ## Overview
 
-The NetworkGuard module primarily operates by hooking system and application network calls and deferring to the `com.wobbz.framework.security.SecurityManager` for decisions. It does not expose a direct programmatic API for other Xposed modules to call its core hooking functionalities extensively. Interactions from other modules are typically implicit through the `SecurityManager`.
+The NetworkGuard module operates by hooking system and application network calls and deferring to the `com.wobbz.framework.security.SecurityManager` for decisions. It operates as a bridge between the application network operations and the SecurityManager's rule enforcement.
 
-The methods and classes described below are part of its public interface mainly for internal use, interaction with a potential settings/management UI, or specific framework services, rather than for direct invocation by other Xposed modules.
+The module implements the modern `io.github.libxposed.api` interfaces and hooks various network operations at different levels:
+- Core system network classes (`Socket`, `URL`, etc.) in Zygote to intercept low-level connections
+- App-specific network libraries (e.g., OkHttp) for more granular control of HTTP traffic
+- System server network services for monitoring system-wide connectivity
 
-## Public Methods (Potentially for UI/Framework Interaction)
+## Implementation Status
 
-These methods might be called via reflection or direct class interaction if an instance of the main module class (`NetworkGuardModule`) is obtained.
+This module primarily relies on SecurityManager for its rule storage and decision making. The public methods listed below are **implemented in the module** but most delegate to SecurityManager for the actual rule management.
+
+## Public Methods
+
+The following methods are implemented and available through the module's service API via FeatureManager:
 
 -   `void addFirewallRule(String packageName, String destinationPattern, int portStart, int portEnd, int protocol, int ruleType)`
-    *   **Description**: Adds a custom firewall rule directly to the `SecurityManager` if it's initialized.
+    *   **Description**: Adds a custom firewall rule through the `SecurityManager`.
     *   **Parameters**:
         *   `packageName`: Target package for the rule.
         *   `destinationPattern`: Regex for destination host/IP.
@@ -28,20 +35,30 @@ These methods might be called via reflection or direct class interaction if an i
 
 -   `AppNetworkStats getAppNetworkStats(String packageName)`
     *   **Description**: Retrieves network statistics for a specific application.
-    *   **Returns**: `AppNetworkStats` object.
+    *   **Returns**: `AppNetworkStats` object with usage data.
 
 -   `Map<String, Set<String>> getAllAppConnections()`
-    *   **Description**: Returns a map of package names to a set of their active/observed connections.
+    *   **Description**: Returns a map of package names to their active/observed connections.
 
 -   `long getTotalBytesReceived()`
-    *   **Description**: Returns the total bytes received across all monitored apps (implementation dependent).
+    *   **Description**: Returns the total bytes received across all monitored apps.
 
 -   `long getTotalBytesSent()`
-    *   **Description**: Returns the total bytes sent (implementation dependent).
+    *   **Description**: Returns the total bytes sent across all monitored apps.
+
+## Integration with SecurityManager
+
+NetworkGuard implements the `SecurityManager.SecurityListener` interface to receive notifications about:
+- Security rule changes
+- Firewall events
+- Connection attempts that are blocked
+- Policy changes that require re-evaluating connections
+
+When rule changes occur in SecurityManager, NetworkGuard updates its internal state accordingly to apply the changes to existing and new connections without requiring a full reboot.
 
 ## `AppNetworkStats` Class
 
-This public static inner class holds network statistics for an application:
+This class holds network statistics for an application:
 
 ```java
 public static class AppNetworkStats {
@@ -58,19 +75,35 @@ public static class AppNetworkStats {
 }
 ```
 
-## Configuration via `SecurityManager`
+## Configuration Schema
 
-Modules or a central UI should configure network rules (allow/block lists, app restrictions) via the `SecurityManager` API. NetworkGuard listens to `SecurityManager` events and applies these rules based on its hooks, which are implemented using `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` classes.
+NetworkGuard itself has minimal configuration since it delegates most rule management to SecurityManager. Its settings.json contains:
 
-## Settings and Module Reloading
+```json
+{
+  "verboseLogging": false,          // Enable detailed logging of network operations
+  "trackHttpRequests": true,        // Track detailed HTTP request information
+  "interceptSSLTraffic": false,     // Attempt to intercept SSL traffic (requires additional setup)
+  "enableAppSpecificHooks": true,   // Enable hooks for app-specific libraries like OkHttp
+  "bypassSystemApps": true,         // Whether to bypass monitoring of system apps
+  "targetApps": [                   // If empty, all non-system apps are targeted
+    "com.example.app1",
+    "com.example.app2"
+  ]
+}
+```
 
-The `libxposed-api` does not define a standardized hot-reloading mechanism comparable to older Xposed versions. If NetworkGuard's settings (e.g., rules fetched from `SecurityManager` or other configurations) need to be reloaded dynamically at runtime without a full process restart, this would typically involve:
--   The module implementing a listener for specific intents (e.g., broadcasts from a settings UI).
--   Upon receiving such an intent, the module would re-fetch its configuration and update its internal state.
--   Re-applying Xposed hooks is generally not done lightly and might not be necessary if the hook logic itself is data-driven (i.e., refers to the reloaded configuration).
+## Hot Reload Support
 
-## Interactions
+NetworkGuard implements `@HotReloadable` and the `onHotReload()` method which:
+1. Unhooks all active hooks
+2. Re-initializes its connection with SecurityManager
+3. Reloads settings
+4. Re-applies the appropriate hooks
 
--   **Listens to**: `SecurityManager` (for rule changes and firewall events).
--   **Uses**: `AnalyticsManager` (if applicable, for tracking hook performance), `LoggingHelper`.
--   **Core Hooking**: Implemented using `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` within its `IXposedModule` lifecycle methods (`onZygote`, `onSystemServer`, `onPackageLoaded`). 
+## Interactions with LSPosed Framework
+
+-   **Annotations**: Uses `@XposedPlugin` and `@HotReloadable` annotations
+-   **Lifecycle Methods**: Implements `onZygote`, `onSystemServerLoaded`, and `onPackageLoaded`
+-   **Manager Interfaces**: Implements `SecurityManager.SecurityListener`
+-   **Utilities**: Uses `LoggingHelper` for consistent logging 

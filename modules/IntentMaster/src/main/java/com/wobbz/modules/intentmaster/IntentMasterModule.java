@@ -9,9 +9,12 @@ import android.content.ServiceConnection;
 import android.os.Build;
 import android.os.Bundle;
 
+import com.wobbz.framework.IHotReloadable;
 import com.wobbz.framework.IModulePlugin;
+import com.wobbz.framework.annotations.HotReloadable;
 import com.wobbz.framework.development.LoggingHelper;
 import com.wobbz.framework.ui.models.SettingsField;
+import com.wobbz.framework.ui.models.SettingsHelper;
 import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.modules.intentmaster.model.IntentLog;
 import com.wobbz.modules.intentmaster.model.IntentRule;
@@ -34,6 +37,7 @@ import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedInterface.BeforeHookCallback;
 import io.github.libxposed.api.XposedInterface.AfterHookCallback;
 import io.github.libxposed.api.XposedInterface.Hooker;
+import io.github.libxposed.api.XposedInterface.MethodUnhooker;
 import io.github.libxposed.api.XposedModuleInterface;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
@@ -50,50 +54,22 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
     version = "1.0.0",
     author = "wobbz"
 )
-public class IntentMasterModule implements IModulePlugin {
+@HotReloadable
+public class IntentMasterModule implements IModulePlugin, IHotReloadable {
     private static final String TAG = "IntentMasterModule";
     private static final int MAX_LOGS = 100;
     
-    // Mock of SettingsHelper for testing
-    private static class MockSettingsHelper {
-        private final Map<String, Object> settings = new HashMap<>();
-        private final List<BiConsumer<String, Object>> listeners = new ArrayList<>();
-        
-        public boolean getBoolean(String key, boolean defaultValue) {
-            return settings.containsKey(key) ? (Boolean)settings.get(key) : defaultValue;
-        }
-        
-        public String getString(String key, String defaultValue) {
-            return settings.containsKey(key) ? (String)settings.get(key) : defaultValue;
-        }
-        
-        public void putString(String key, String value) {
-            settings.put(key, value);
-            notifyListeners(key, value);
-        }
-        
-        public void registerChangeListener(BiConsumer<String, Object> listener) {
-            listeners.add(listener);
-        }
-        
-        private void notifyListeners(String key, Object value) {
-            for (BiConsumer<String, Object> listener : listeners) {
-                listener.accept(key, value);
-            }
-        }
-        
-        public static MockSettingsHelper getInstance(String tag) {
-            return new MockSettingsHelper();
-        }
-    }
-    
-    private MockSettingsHelper settings;
+    private SettingsHelper settings;
     private final List<IntentRule> rules = new ArrayList<>();
     private final List<IntentLog> logs = new CopyOnWriteArrayList<>();
     private boolean interceptionEnabled = true;
     private boolean logAllIntents = true;
     private List<String> targetApps = new ArrayList<>();
     private XposedInterface xposedInterface;
+    private Context moduleContext;
+    
+    // Keep track of unhookers for hot reload
+    private final List<MethodUnhooker<?>> unhookers = new ArrayList<>();
     
     public IntentMasterModule() {
         // Will be initialized in initialize()
@@ -104,10 +80,10 @@ public class IntentMasterModule implements IModulePlugin {
      */
     public void initialize(Context context, XposedInterface xposedInterface) {
         this.xposedInterface = xposedInterface;
-        this.settings = MockSettingsHelper.getInstance(TAG);
+        this.moduleContext = context;
         
-        // Register settings change listener
-        settings.registerChangeListener(this::onSettingsChanged);
+        // Initialize settings
+        this.settings = new SettingsHelper(context, "com.wobbz.IntentMaster");
         
         // Load settings
         loadSettings();
@@ -129,15 +105,10 @@ public class IntentMasterModule implements IModulePlugin {
         logAllIntents = settings.getBoolean("logAllIntents", true);
         
         // Load target apps
-        String targetAppsJson = settings.getString("targetApps", "[]");
-        try {
-            JSONArray appsArray = new JSONArray(targetAppsJson);
-            targetApps = new ArrayList<>(appsArray.length());
-            for (int i = 0; i < appsArray.length(); i++) {
-                targetApps.add(appsArray.getString(i));
-            }
-        } catch (JSONException e) {
-            LoggingHelper.error(TAG, "Failed to parse target apps: " + e.getMessage());
+        String[] targetAppsArray = settings.getStringArray("targetApps");
+        if (targetAppsArray != null) {
+            targetApps = new ArrayList<>(Arrays.asList(targetAppsArray));
+        } else {
             targetApps = new ArrayList<>();
         }
         
@@ -231,22 +202,34 @@ public class IntentMasterModule implements IModulePlugin {
         
         // Hook Activity.startActivity(Intent)
         Method startActivityMethod = activityClass.getDeclaredMethod("startActivity", Intent.class);
-        xposedInterface.hook(startActivityMethod, ActivityStartActivityHook.class);
+        MethodUnhooker<?> unhooker1 = xposedInterface.hook(startActivityMethod, ActivityStartActivityHook.class);
+        if (unhooker1 != null) {
+            unhookers.add(unhooker1);
+        }
         
         // Hook Activity.startActivity(Intent, Bundle)
         Method startActivityWithBundleMethod = activityClass.getDeclaredMethod("startActivity", Intent.class, Bundle.class);
-        xposedInterface.hook(startActivityWithBundleMethod, ActivityStartActivityWithBundleHook.class);
+        MethodUnhooker<?> unhooker2 = xposedInterface.hook(startActivityWithBundleMethod, ActivityStartActivityWithBundleHook.class);
+        if (unhooker2 != null) {
+            unhookers.add(unhooker2);
+        }
         
         // Get the Context class
         Class<?> contextClass = classLoader.loadClass("android.content.Context");
         
         // Hook Context.startActivity(Intent)
         Method contextStartActivityMethod = contextClass.getDeclaredMethod("startActivity", Intent.class);
-        xposedInterface.hook(contextStartActivityMethod, ContextStartActivityHook.class);
+        MethodUnhooker<?> unhooker3 = xposedInterface.hook(contextStartActivityMethod, ContextStartActivityHook.class);
+        if (unhooker3 != null) {
+            unhookers.add(unhooker3);
+        }
         
         // Hook Context.startActivity(Intent, Bundle)
         Method contextStartActivityWithBundleMethod = contextClass.getDeclaredMethod("startActivity", Intent.class, Bundle.class);
-        xposedInterface.hook(contextStartActivityWithBundleMethod, ContextStartActivityWithBundleHook.class);
+        MethodUnhooker<?> unhooker4 = xposedInterface.hook(contextStartActivityWithBundleMethod, ContextStartActivityWithBundleHook.class);
+        if (unhooker4 != null) {
+            unhookers.add(unhooker4);
+        }
     }
     
     /**
@@ -360,17 +343,22 @@ public class IntentMasterModule implements IModulePlugin {
      * Hooks Context.startService methods.
      */
     private void hookStartService(ClassLoader classLoader) throws Exception {
-        // Get the Context class
         Class<?> contextClass = classLoader.loadClass("android.content.Context");
         
         // Hook Context.startService(Intent)
         Method startServiceMethod = contextClass.getDeclaredMethod("startService", Intent.class);
-        xposedInterface.hook(startServiceMethod, StartServiceHook.class);
+        MethodUnhooker<?> unhooker1 = xposedInterface.hook(startServiceMethod, StartServiceHook.class);
+        if (unhooker1 != null) {
+            unhookers.add(unhooker1);
+        }
         
-        // Hook Context.startForegroundService(Intent) for Android O+
+        // Hook Context.startForegroundService(Intent) - added in Android O
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Method startForegroundServiceMethod = contextClass.getDeclaredMethod("startForegroundService", Intent.class);
-            xposedInterface.hook(startForegroundServiceMethod, StartForegroundServiceHook.class);
+            MethodUnhooker<?> unhooker2 = xposedInterface.hook(startForegroundServiceMethod, StartForegroundServiceHook.class);
+            if (unhooker2 != null) {
+                unhookers.add(unhooker2);
+            }
         }
     }
     
@@ -430,21 +418,29 @@ public class IntentMasterModule implements IModulePlugin {
      * Hooks Context.sendBroadcast methods.
      */
     private void hookSendBroadcast(ClassLoader classLoader) throws Exception {
-        // Get the Context class
         Class<?> contextClass = classLoader.loadClass("android.content.Context");
         
         // Hook Context.sendBroadcast(Intent)
         Method sendBroadcastMethod = contextClass.getDeclaredMethod("sendBroadcast", Intent.class);
-        xposedInterface.hook(sendBroadcastMethod, SendBroadcastHook.class);
+        MethodUnhooker<?> unhooker1 = xposedInterface.hook(sendBroadcastMethod, SendBroadcastHook.class);
+        if (unhooker1 != null) {
+            unhookers.add(unhooker1);
+        }
         
         // Hook Context.sendBroadcast(Intent, String)
         Method sendBroadcastWithPermMethod = contextClass.getDeclaredMethod("sendBroadcast", Intent.class, String.class);
-        xposedInterface.hook(sendBroadcastWithPermMethod, SendBroadcastWithPermHook.class);
+        MethodUnhooker<?> unhooker2 = xposedInterface.hook(sendBroadcastWithPermMethod, SendBroadcastWithPermHook.class);
+        if (unhooker2 != null) {
+            unhookers.add(unhooker2);
+        }
         
         // Hook Context.sendOrderedBroadcast
         Method sendOrderedBroadcastMethod = contextClass.getDeclaredMethod("sendOrderedBroadcast", 
                 Intent.class, String.class);
-        xposedInterface.hook(sendOrderedBroadcastMethod, SendOrderedBroadcastHook.class);
+        MethodUnhooker<?> unhooker3 = xposedInterface.hook(sendOrderedBroadcastMethod, SendOrderedBroadcastHook.class);
+        if (unhooker3 != null) {
+            unhookers.add(unhooker3);
+        }
     }
     
     public static class SendBroadcastHook implements Hooker {
@@ -529,16 +525,14 @@ public class IntentMasterModule implements IModulePlugin {
      * Hooks Context.bindService methods.
      */
     private void hookBindService(ClassLoader classLoader) throws Exception {
-        // Get the Context class
         Class<?> contextClass = classLoader.loadClass("android.content.Context");
         
-        // Hook Context.bindService methods (for different Android versions)
-        for (Method method : contextClass.getDeclaredMethods()) {
-            if (method.getName().equals("bindService") && method.getParameterTypes().length >= 2 
-                    && method.getParameterTypes()[0] == Intent.class
-                    && method.getParameterTypes()[1] == ServiceConnection.class) {
-                xposedInterface.hook(method, BindServiceHook.class);
-            }
+        // Hook Context.bindService(Intent, ServiceConnection, int)
+        Method bindServiceMethod = contextClass.getDeclaredMethod("bindService", 
+                Intent.class, ServiceConnection.class, int.class);
+        MethodUnhooker<?> unhooker = xposedInterface.hook(bindServiceMethod, BindServiceHook.class);
+        if (unhooker != null) {
+            unhookers.add(unhooker);
         }
     }
     
@@ -692,6 +686,173 @@ public class IntentMasterModule implements IModulePlugin {
             LoggingHelper.debug(TAG, "Logged intent: " + logEntry.toString());
         } catch (Exception e) {
             LoggingHelper.error(TAG, "Failed to log intent: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Implementation of onHotReload for hot reloading support.
+     * This method is called when the module code is updated in development.
+     */
+    @Override
+    public void onHotReload() {
+        LoggingHelper.debug(TAG, "Hot reloading module");
+        
+        // Unhook all methods
+        for (MethodUnhooker<?> unhooker : unhookers) {
+            unhooker.unhook();
+        }
+        unhookers.clear();
+        
+        // Clear static instance and reinitialize
+        instance = this;
+        
+        // Clear and reload settings
+        loadSettings();
+        
+        // The hooks will be reapplied when onPackageLoaded is called again by the framework
+        LoggingHelper.debug(TAG, "Module hot-reloaded successfully");
+    }
+    
+    /**
+     * Create and send a test intent based on specified configuration.
+     * This allows testing the module's rules without needing another app.
+     * 
+     * @param testIntentConfig JSON configuration for the test intent
+     * @return Result of sending the intent or an error message
+     */
+    public String sendTestIntent(JSONObject testIntentConfig) {
+        try {
+            // Create a new intent from the test configuration
+            Intent testIntent = new Intent();
+            
+            // Set basic properties
+            if (testIntentConfig.has("action")) {
+                testIntent.setAction(testIntentConfig.getString("action"));
+            }
+            
+            if (testIntentConfig.has("data")) {
+                testIntent.setData(android.net.Uri.parse(testIntentConfig.getString("data")));
+            }
+            
+            if (testIntentConfig.has("type")) {
+                if (testIntentConfig.has("data")) {
+                    testIntent.setDataAndType(
+                        android.net.Uri.parse(testIntentConfig.getString("data")),
+                        testIntentConfig.getString("type")
+                    );
+                } else {
+                    testIntent.setType(testIntentConfig.getString("type"));
+                }
+            }
+            
+            // Set component if specified
+            if (testIntentConfig.has("component")) {
+                String component = testIntentConfig.getString("component");
+                String[] parts = component.split("/", 2);
+                if (parts.length == 2) {
+                    String packageName = parts[0];
+                    String className = parts[1];
+                    // Handle shorthand class name (with dot prefix)
+                    if (className.startsWith(".")) {
+                        className = packageName + className;
+                    }
+                    testIntent.setComponent(new ComponentName(packageName, className));
+                }
+            }
+            
+            // Add categories
+            if (testIntentConfig.has("categories")) {
+                JSONArray categories = testIntentConfig.getJSONArray("categories");
+                for (int i = 0; i < categories.length(); i++) {
+                    testIntent.addCategory(categories.getString(i));
+                }
+            }
+            
+            // Add extras
+            if (testIntentConfig.has("extras")) {
+                JSONArray extras = testIntentConfig.getJSONArray("extras");
+                for (int i = 0; i < extras.length(); i++) {
+                    JSONObject extra = extras.getJSONObject(i);
+                    String key = extra.getString("key");
+                    String type = extra.getString("type");
+                    
+                    switch (type) {
+                        case "STRING":
+                            testIntent.putExtra(key, extra.getString("value"));
+                            break;
+                        case "INT":
+                            testIntent.putExtra(key, extra.getInt("value"));
+                            break;
+                        case "BOOLEAN":
+                            testIntent.putExtra(key, extra.getBoolean("value"));
+                            break;
+                        case "FLOAT":
+                            testIntent.putExtra(key, (float) extra.getDouble("value"));
+                            break;
+                        case "LONG":
+                            testIntent.putExtra(key, extra.getLong("value"));
+                            break;
+                        case "DOUBLE":
+                            testIntent.putExtra(key, extra.getDouble("value"));
+                            break;
+                        // Add other types as needed
+                    }
+                }
+            }
+            
+            // Set flags if specified
+            if (testIntentConfig.has("flags")) {
+                testIntent.setFlags(testIntentConfig.getInt("flags"));
+            }
+            
+            // Process the intent through our rules
+            String sourcePackage = moduleContext.getPackageName();
+            if (testIntentConfig.has("sourcePackage")) {
+                sourcePackage = testIntentConfig.getString("sourcePackage");
+            }
+            
+            // Log the original intent
+            logIntent(testIntent, sourcePackage, "TEST_ORIGINAL", null);
+            
+            // Process through our rules
+            Intent processedIntent = processIntent(testIntent, sourcePackage);
+            
+            // Check the result
+            if (processedIntent == null) {
+                return "Intent was blocked by rules";
+            } else if (processedIntent != testIntent) {
+                logIntent(processedIntent, sourcePackage, "TEST_MODIFIED", null);
+                return "Intent was modified by rules";
+            }
+            
+            // If we're supposed to actually send the intent
+            if (testIntentConfig.has("send") && testIntentConfig.getBoolean("send")) {
+                try {
+                    if (moduleContext != null) {
+                        if (testIntentConfig.has("startActivity") && testIntentConfig.getBoolean("startActivity")) {
+                            processedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            moduleContext.startActivity(processedIntent);
+                            return "Test intent was sent via startActivity";
+                        } else if (testIntentConfig.has("startService") && testIntentConfig.getBoolean("startService")) {
+                            ComponentName result = moduleContext.startService(processedIntent);
+                            return "Test intent was sent via startService: " + (result != null ? "success" : "failed");
+                        } else if (testIntentConfig.has("sendBroadcast") && testIntentConfig.getBoolean("sendBroadcast")) {
+                            moduleContext.sendBroadcast(processedIntent);
+                            return "Test intent was sent via sendBroadcast";
+                        }
+                    } else {
+                        return "Cannot send intent: Module context is null";
+                    }
+                } catch (Exception e) {
+                    return "Error sending intent: " + e.getMessage();
+                }
+            }
+            
+            return "Test intent processed successfully (no actual sending)";
+            
+        } catch (Exception e) {
+            LoggingHelper.error(TAG, "Error in sendTestIntent: " + e.getMessage());
+            return "Error: " + e.getMessage();
         }
     }
 } 

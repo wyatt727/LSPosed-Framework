@@ -19,6 +19,70 @@ if (superPatcher != null) {
 }
 ```
 
+## JSON Patch Structure
+
+SuperPatcher uses JSON configuration for its method patches. The patches are loaded from `settings.json` in the array field `patchDefinitions`. Here's the schema for each patch object:
+
+```json
+{
+    "package": "com.example.app",       // Optional: Target specific package (if omitted, applies to all)
+    "className": "com.example.MyClass", // Required: Full class name to hook
+    "methodName": "myMethod",           // Required: Method name to hook (use "$init" for constructors)
+    "hookType": "after",                // Required: "before", "after", "both", or "replace"
+    "parameterTypes": [                 // Optional: Parameter types (if omitted, hooks all methods with the name)
+        "java.lang.String",
+        "int",
+        "android.os.Bundle"
+    ],
+    "modifyArgs": true,                 // Optional: Whether to modify method arguments
+    "argValues": [                      // Optional: Values to replace arguments with
+        null,                           // null means don't change this argument
+        true,                           // Boolean literal
+        {                               // Complex type
+            "type": "string",
+            "value": "replaced string"
+        }
+    ],
+    "modifyReturn": true,               // Optional: Whether to modify return value (ignored for "before" hooks)
+    "returnValue": {                    // Optional: Value to replace return value with
+        "type": "boolean",
+        "value": true
+    },
+    "logArgs": true,                    // Optional: Whether to log method arguments
+    "logReturn": true,                  // Optional: Whether to log method return value
+    "description": "My patch",          // Optional: Human-readable description of the patch
+    "useWildcard": false                // Optional: Whether to use partial class name matching
+}
+```
+
+### Type Specifications
+
+Values in `argValues` and `returnValue` can be specified in multiple ways:
+
+1. **Direct JSON primitives**: `true`, `false`, `123`, `"string"`
+2. **Complex types**:
+   ```json
+   {
+       "type": "boolean|int|long|double|string|null",
+       "value": [appropriate value]
+   }
+   ```
+
+### Pre-defined Templates
+
+SuperPatcher includes the `TemplateManager` class that provides pre-defined patch templates for common use cases:
+
+- **SSL Certificate Unpinning**: Bypass SSL certificate validation
+- **Debug Flags**: Enable various debug options
+- **Log Method Calls**: Trace method execution
+
+You can use these templates as follows:
+
+```java
+String jsonConfig = TemplateManager.getTemplate(TemplateManager.TEMPLATE_SSL_UNPINNING);
+// Parse and modify as needed, then set to settings
+```
+
 ## API Methods
 
 ### Method Hooking

@@ -19,6 +19,8 @@ import com.wobbz.deepintegrator.models.ComponentConfig;
 import com.wobbz.deepintegrator.models.IntentFilterConfig;
 import com.wobbz.framework.IHotReloadable;
 import com.wobbz.framework.IModulePlugin;
+import com.wobbz.framework.annotations.HotReloadable;
+import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.framework.development.LoggingHelper;
 import com.wobbz.framework.features.FeatureManager;
 import com.wobbz.framework.ui.models.SettingsHelper;
@@ -29,7 +31,9 @@ import org.json.JSONObject;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,11 +45,20 @@ import io.github.libxposed.api.XposedInterface.AfterHookCallback;
 import io.github.libxposed.api.XposedInterface.MethodUnhooker;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.SystemServerLoadedParam;
 
 /**
  * DeepIntegratorModule exposes hidden app components and modifies intent filters
  * to enable deeper integration between apps.
  */
+@XposedPlugin(
+    id = "com.wobbz.DeepIntegrator",
+    name = "Deep Integrator",
+    description = "Exposes hidden app components and modifies intent filters for deeper app integration",
+    version = "1.0.0",
+    scope = {"android"} // For system server hooks
+)
+@HotReloadable
 public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     private static final String TAG = "DeepIntegratorModule";
     private static final String MODULE_ID = "com.wobbz.DeepIntegrator";
@@ -73,6 +86,9 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     
     // SuperPatcher module instance
     private Object mSuperPatcherService;
+    
+    // Store the last lpparam for re-hooking during hot reload
+    private PackageLoadedParam mLastLpparam;
     
     /**
      * Called when the module is loaded in Zygote
@@ -114,8 +130,17 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     public void onPackageLoaded(PackageLoadedParam lpparam) {
         // Only hook in the package manager package (usually system_server)
         if (lpparam.getPackageName().equals("android")) {
+            mLastLpparam = lpparam; // Store for hot reload
             hookPackageManagerService(lpparam);
         }
+    }
+    
+    /**
+     * Handle system server being loaded.
+     */
+    public void onSystemServerLoaded(SystemServerLoadedParam param) {
+        log("System server loaded");
+        // Can also initialize hooks here with param.getXposed()
     }
     
     /**
@@ -315,18 +340,23 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     private void hookMethod(PackageLoadedParam lpparam, String className, 
                            String methodName, Hooker hook) {
         try {
-            ClassLoader classLoader = lpparam.getClassLoader();
-            Class<?> clazz = classLoader.loadClass(className);
+            // Get class
+            Class<?> clazz = lpparam.getClassLoader().loadClass(className);
             
-            // Find the method - we'll try with common parameter patterns
+            // Find method
             Method method = findMethodInClass(clazz, methodName);
+            if (method == null) {
+                log("Could not find method " + methodName + " in class " + className);
+                return;
+            }
             
-            if (method != null) {
-                MethodUnhooker<Method> unhooker = mXposedInterface.hook(method, hook.getClass());
+            // Hook method
+            MethodUnhooker<?> unhooker = mXposedInterface.hook(method, hook);
+            if (unhooker != null) {
                 mActiveHooks.add(unhooker);
-                log("Hooked " + className + "." + methodName);
+                log("Hooked " + className + "." + methodName + "() successfully");
             } else {
-                log("Could not find method " + className + "." + methodName);
+                log("Failed to hook " + className + "." + methodName + "()");
             }
         } catch (Throwable t) {
             LoggingHelper.error(TAG, "Error hooking " + className + "." + methodName, t);
@@ -334,20 +364,60 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     }
     
     /**
-     * Helper to find a method in a class by name
+     * Find a method in a class by name and parameter types.
+     * 
+     * @param clazz The class to search in
+     * @param methodName The name of the method to find
+     * @param parameterTypes Optional parameter types to match
+     * @return The found method, or null if not found
      */
-    private Method findMethodInClass(Class<?> clazz, String methodName) {
-        for (Method method : clazz.getDeclaredMethods()) {
-            if (method.getName().equals(methodName)) {
-                method.setAccessible(true);
-                return method;
+    private Method findMethodInClass(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
+        if (clazz == null || methodName == null) {
+            return null;
+        }
+        
+        // If parameter types are provided, use exact matching
+        if (parameterTypes != null && parameterTypes.length > 0) {
+            try {
+                return clazz.getDeclaredMethod(methodName, parameterTypes);
+            } catch (NoSuchMethodException e) {
+                // Fall back to searching all methods
             }
         }
+        
+        // Search all methods
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (method.getName().equals(methodName)) {
+                // If we didn't specify parameter types, return the first match
+                if (parameterTypes == null || parameterTypes.length == 0) {
+                    method.setAccessible(true);
+                    return method;
+                }
+                
+                // Otherwise, check parameter types
+                Class<?>[] methodParams = method.getParameterTypes();
+                if (methodParams.length == parameterTypes.length) {
+                    boolean match = true;
+                    for (int i = 0; i < methodParams.length; i++) {
+                        if (!methodParams[i].isAssignableFrom(parameterTypes[i])) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    
+                    if (match) {
+                        method.setAccessible(true);
+                        return method;
+                    }
+                }
+            }
+        }
+        
         return null;
     }
     
     /**
-     * Get component configuration for a specific component.
+     * Get a component configuration.
      */
     private ComponentConfig getComponentConfig(String packageName, String componentName, String componentType) {
         List<ComponentConfig> packageConfigs = mComponentConfigs.get(packageName);
@@ -433,40 +503,26 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     
     /**
      * Hooker to modify component info.
+     * Now a non-static inner class to access module instance.
      */
-    public static class ComponentModificationHook implements Hooker {
+    public class ComponentModificationHook implements Hooker {
         private final String componentType;
         
         public ComponentModificationHook(String componentType) {
             this.componentType = componentType;
         }
         
-        public static void before(BeforeHookCallback callback) {
+        public void before(BeforeHookCallback callback) {
             // No action needed before method execution
         }
         
-        public static void after(AfterHookCallback callback, ComponentModificationHook context) {
+        public void after(AfterHookCallback callback) {
             Object result = callback.getResult();
             if (result instanceof ComponentInfo) {
                 ComponentInfo info = (ComponentInfo) result;
                 
-                // We can't directly call modifyComponentInfo here as it's not static
-                // In a real implementation, we'd need to pass this to the module instance
-                // For now, we'll just modify some basic properties
-                
-                // Make component exported
-                info.exported = true;
-                
-                // Remove permission requirement based on component type
-                if (info instanceof ActivityInfo) {
-                    ((ActivityInfo)info).permission = null;
-                } else if (info instanceof ServiceInfo) {
-                    ((ServiceInfo)info).permission = null;
-                } else if (info instanceof ProviderInfo) {
-                    ProviderInfo providerInfo = (ProviderInfo) info;
-                    providerInfo.readPermission = null;
-                    providerInfo.writePermission = null;
-                }
+                // Use the module instance's modifyComponentInfo method
+                modifyComponentInfo(info, componentType);
                 
                 callback.setResult(info);
             }
@@ -475,50 +531,85 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
     
     /**
      * Hooker to modify intent query results.
+     * Now implements intent filter injection and is a non-static inner class.
      */
-    public static class IntentQueryHook implements Hooker {
+    public class IntentQueryHook implements Hooker {
         private final String componentType;
         
         public IntentQueryHook(String componentType) {
             this.componentType = componentType;
         }
         
-        public static void before(BeforeHookCallback callback) {
+        public void before(BeforeHookCallback callback) {
             // No action needed before method execution
         }
         
-        public static void after(AfterHookCallback callback, IntentQueryHook context) {
-            // Intent query modification would go here
-            // But we can't directly implement the full logic in this static method
+        public void after(AfterHookCallback callback) {
+            // Get the result list (which might be a List<ResolveInfo>)
+            Object result = callback.getResult();
+            if (!(result instanceof List<?>)) {
+                return;
+            }
+            
+            // Get the intent being queried (first parameter is often the Intent)
+            Object[] args = callback.getArgs();
+            Intent intent = null;
+            for (Object arg : args) {
+                if (arg instanceof Intent) {
+                    intent = (Intent) arg;
+                    break;
+                }
+            }
+            
+            if (intent == null) {
+                return;
+            }
+            
+            // Intent filter injection would be implemented here
+            // This would add or modify ResolveInfo objects in the result list
+            // based on IntentFilterConfig in ComponentConfig
+            
+            // Example pseudocode:
+            // for (ComponentConfig config : getAllComponentConfigs())
+            //    if (config.getComponentType().equals(componentType))
+            //        for (IntentFilterConfig filter : config.getIntentFilters())
+            //            if (filter matches intent)
+            //                Create and add ResolveInfo to result
+            
+            // This is just a placeholder for the implementation
+            log("IntentQueryHook called for " + componentType + 
+                " with intent action: " + intent.getAction());
         }
     }
     
     /**
      * Hooker to bypass permission checks.
+     * Now a non-static inner class to access module instance.
      */
-    public static class PermissionBypassHook implements Hooker {
-        public static void before(BeforeHookCallback callback) {
+    public class PermissionBypassHook implements Hooker {
+        public void before(BeforeHookCallback callback) {
             // Get parameters
             Object[] args = callback.getArgs();
             if (args.length >= 2 && args[0] instanceof String && args[1] instanceof String) {
                 String permission = (String) args[0];
                 String packageName = (String) args[1];
                 
-                // Bypass certain permissions for specific packages
-                // This is just an example - in the real implementation, we would check 
-                // against configurations
-                if (permission != null && (
-                    permission.contains("INTERACT_ACROSS_USERS") ||
-                    permission.contains("MANAGE_ACTIVITY") ||
-                    permission.contains("INJECT_EVENTS") ||
-                    permission.contains("WRITE_SECURE_SETTINGS"))) {
-                    
-                    callback.returnAndSkip(PackageManager.PERMISSION_GRANTED);
+                // Check if this package has permission bypass configured
+                if (isTargetedPackage(packageName) && mBypassPermissionChecks) {
+                    // Bypass certain permissions
+                    if (permission != null && (
+                        permission.contains("INTERACT_ACROSS_USERS") ||
+                        permission.contains("MANAGE_ACTIVITY") ||
+                        permission.contains("INJECT_EVENTS") ||
+                        permission.contains("WRITE_SECURE_SETTINGS"))) {
+                        
+                        callback.returnAndSkip(PackageManager.PERMISSION_GRANTED);
+                    }
                 }
             }
         }
         
-        public static void after(AfterHookCallback callback) {
+        public void after(AfterHookCallback callback) {
             // No action needed after method execution
         }
     }
@@ -632,6 +723,14 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
         // Reload settings
         loadSettings();
         
+        // Re-apply hooks if we have a stored lpparam
+        if (mLastLpparam != null) {
+            log("Re-applying hooks to PackageManagerService");
+            hookPackageManagerService(mLastLpparam);
+        } else {
+            log("No stored lpparam, hooks will be applied when onPackageLoaded is called");
+        }
+        
         log("Module hot-reloaded successfully");
     }
     
@@ -639,6 +738,6 @@ public class DeepIntegratorModule implements IModulePlugin, IHotReloadable {
      * Log helper.
      */
     private void log(String message) {
-        LoggingHelper.logInfo(TAG, message);
+        LoggingHelper.info(TAG, message);
     }
 } 

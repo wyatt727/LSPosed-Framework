@@ -21,7 +21,6 @@
   - [Prerequisites](#prerequisites)
   - [Build & Installation](#build--installation)
 - [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
 
 ---
 
@@ -194,22 +193,29 @@ LSPosed-Modules/
 
 ### Hook Implementation Patterns
 
-Utilize the modern `io.github.libxposed.api`:
+Utilize the modern `io.github.libxposed.api`. The Wobbz LSPosed Framework provides `com.wobbz.framework.IModulePlugin` (which extends the base `io.github.libxposed.api.XposedModuleInterface`) and `com.wobbz.framework.IHotReloadable` for enhanced module development. It's recommended to use these framework-specific interfaces.
 
-1.  **Basic Hook with `XposedInterface` and `Hooker`**:
+1.  **Basic Hook with `XposedInterface` and `Hooker`** (using `IModulePlugin`):
     ```java
-    // In your module class that implements IXposedModule or similar
-    // (e.g., onPackageLoaded(XposedInterface xposedInterface, String packageName))
+    // In your module class that implements com.wobbz.framework.IModulePlugin
+    // Example: within onPackageLoaded(PackageLoadedParam param) or a method called from there
 
-    public void hookSomething(XposedInterface xposedInterface, String targetPackageName) {
+    public void hookSomething(PackageLoadedParam param) { // PackageLoadedParam from io.github.libxposed.api.XposedModuleInterface
+        XposedInterface xposedInterface = param.getXposed(); // Obtain XposedInterface from param
+        String targetPackageName = param.getPackageName();
+
         if ("com.example.app".equals(targetPackageName)) {
             try {
                 // Find the class and method you want to hook
+                // Prefer standard Java reflection or XposedInterface helpers if available
                 Class<?> targetClass = xposedInterface.loadClass("com.example.app.TargetClass");
-                Method targetMethod = XposedHelpers.findMethodExact(targetClass, "targetMethodName", String.class, int.class);
+                // Example using standard Java reflection:
+                Method targetMethod = targetClass.getDeclaredMethod("targetMethodName", String.class, int.class);
+                targetMethod.setAccessible(true); // Important if method is not public
                 
                 // Hook the method
-                xposedInterface.hook(targetMethod, MyTargetMethodHooker.class);
+                // Store the unhooker if you need to unhook later (e.g., for hot-reload)
+                MethodUnhooker<?> unhooker = xposedInterface.hook(targetMethod, MyTargetMethodHooker.class);
                 xposedInterface.log("Successfully hooked targetMethodName in " + targetPackageName);
 
             } catch (Throwable t) {
@@ -241,60 +247,76 @@ Utilize the modern `io.github.libxposed.api`:
 
 2.  **Hot-Reload Support**:
     ```java
-    @HotReloadable
-    public class MyModule implements IXposedModule { // Or your framework's base module interface
-        private List<XposedInterface.MethodUnhooker> unhookers = new ArrayList<>();
-        private XposedInterface xposedInterfaceInstance; // Store if needed
+    @HotReloadable // Wobbz Framework Annotation
+    public class MyModule implements IModulePlugin, IHotReloadable { // Wobbz Framework Interfaces
+        private List<XposedInterface.MethodUnhooker<?>> mActiveHooks = new ArrayList<>();
+        private XposedInterface mXposedInterface; // Store if needed across different lifecycle/hook calls
+        private Context mModuleContext; // Store if needed
 
         @Override
-        public void onPackageLoaded(XposedInterface xposedInterface, String packageName) {
-            this.xposedInterfaceInstance = xposedInterface;
-            // Initial hooking logic
-            applyHooks(packageName);
+        public void initialize(Context context, XposedInterface xposedInterface) {
+            this.mModuleContext = context;
+            this.mXposedInterface = xposedInterface;
+            // Initial loading of settings or one-time setup
         }
 
-        private void applyHooks(String packageName) {
-            // Clear previous hooks before applying new ones
-            clearHooks(); 
+        @Override
+        public void onPackageLoaded(PackageLoadedParam param) {
+            // It's often better to use the XposedInterface from the param for specific package hooks
+            // applyHooks(param.getXposed(), param.getPackageName(), param.getClassLoader());
+            // Or, if you've stored a general one from initialize:
+            applyHooks(this.mXposedInterface, param.getPackageName(), param.getClassLoader());
+        }
+
+        private void applyHooks(XposedInterface xposed, String packageName, ClassLoader classLoader) {
+            // Note: Hot reload might clear mActiveHooks. If hooks are package-specific,
+            // ensure this method is called appropriately for each relevant package after hot reload.
             
-            // Example: Hooking a method
             if ("com.example.app".equals(packageName)) {
                 try {
-                    Class<?> targetClass = xposedInterfaceInstance.loadClass("com.example.app.TargetClass");
-                    Method someMethod = XposedHelpers.findMethodExact(targetClass, "someMethod");
-                    unhookers.add(xposedInterfaceInstance.hook(someMethod, SomeMethodHooker.class));
+                    Class<?> targetClass = xposed.loadClass("com.example.app.TargetClass");
+                    Method someMethod = targetClass.getDeclaredMethod("someMethod");
+                    someMethod.setAccessible(true);
+                    MethodUnhooker<?> unhooker = xposed.hook(someMethod, SomeMethodHooker.class);
+                    if (unhooker != null) mActiveHooks.add(unhooker);
                 } catch (Throwable t) {
-                    xposedInterfaceInstance.log(t);
+                    xposed.log(t);
                 }
             }
         }
         
-        private void clearHooks() {
-            if (xposedInterfaceInstance != null) {
-                 xposedInterfaceInstance.log("Clearing " + unhookers.size() + " hooks for hot-reload.");
+        private void clearAllHooks() {
+            if (mXposedInterface != null) {
+                 mXposedInterface.log("Clearing " + mActiveHooks.size() + " hooks for hot-reload.");
             }
-            for (XposedInterface.MethodUnhooker unhooker : unhookers) {
+            for (XposedInterface.MethodUnhooker<?> unhooker : mActiveHooks) {
                 unhooker.unhook();
             }
-            unhookers.clear();
+            mActiveHooks.clear();
         }
 
         @Override
-        public void onHotReload(String reloadedPackage) { // Assuming onHotReload provides package context
-            if (xposedInterfaceInstance != null) {
-                xposedInterfaceInstance.log("Hot-reloading for package: " + reloadedPackage + " in MyModule...");
+        public void onHotReload() { // Signature from com.wobbz.framework.IHotReloadable
+            if (mXposedInterface != null) {
+                mXposedInterface.log("Hot-reloading MyModule...");
             }
-            // Re-apply hooks for the specific package or all relevant packages
-            applyHooks(reloadedPackage); 
-            if (xposedInterfaceInstance != null) {
-                xposedInterfaceInstance.log("Hot-reload completed for " + reloadedPackage);
+            clearAllHooks();
+            // Reload settings if necessary
+            // loadSettings(); 
+            
+            // The Wobbz LSPosed Framework will typically re-trigger onPackageLoaded 
+            // for active packages, which should re-apply the hooks.
+            // If specific re-initialization is needed here (e.g. for system_server hooks 
+            // not tied to onPackageLoaded), add it.
+            if (mXposedInterface != null) {
+                mXposedInterface.log("Hot-reload completed for MyModule. Hooks will be re-applied on package load.");
             }
         }
         
         // Hooker implementation (e.g., SomeMethodHooker)
         public static class SomeMethodHooker implements Hooker { /* ... */ }
 
-        // Other IXposedModule methods (onInit, onSystemServerLoaded etc.)
+        // Other IModulePlugin methods (onSystemServerLoaded etc.)
     }
     ```
 
@@ -328,7 +350,7 @@ The workflow is significantly streamlined:
         ```
 
 2.  **Implement Hooks**:
-    *   Use `XposedInterface` (often obtained from `IXposedModule` lifecycle methods like `onPackageLoaded`) and `Hooker` classes for your hooking logic.
+    *   Use `XposedInterface` (often obtained from `IModulePlugin` lifecycle methods like `onPackageLoaded`) and `Hooker` classes for your hooking logic.
     *   Implement the `onHotReload()` method in your `@HotReloadable` modules to correctly unhook and re-apply hooks.
 
 3.  **Develop with Hot-Reload**:
@@ -395,4 +417,10 @@ The previous complex steps for handling `libxposed:api` by manually building and
 4.  Push to the branch (`git push origin feature/AmazingFeature`).
 5.  Open a Pull Request.
 
-Please refer to `CONTRIBUTING.md`
+Contributions are welcome! Please check the repository for any contribution guidelines or open an issue to discuss potential changes.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.

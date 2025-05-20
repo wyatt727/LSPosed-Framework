@@ -6,6 +6,8 @@ import android.os.Looper;
 
 import com.wobbz.framework.IHotReloadable;
 import com.wobbz.framework.IModulePlugin;
+import com.wobbz.framework.annotations.HotReloadable;
+import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.framework.development.LoggingHelper;
 import com.wobbz.framework.features.FeatureManager;
 import com.wobbz.framework.ui.models.SettingsHelper;
@@ -17,6 +19,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,17 +28,26 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import dalvik.system.DexClassLoader;
-import io.github.libxposed.api.XC_MethodHook;
-import io.github.libxposed.api.XposedBridge;
-import io.github.libxposed.api.XposedHelpers;
-import io.github.libxposed.api.callbacks.XC_LoadPackage;
-import io.github.libxposed.api.callbacks.XC_LoadPackage.PackageLoadedParam;
-import io.github.libxposed.api.callbacks.XC_LoadPackage.ModuleLoadedParam;
+import io.github.libxposed.api.XposedInterface;
+import io.github.libxposed.api.XposedInterface.Hooker;
+import io.github.libxposed.api.XposedInterface.BeforeHookCallback;
+import io.github.libxposed.api.XposedInterface.AfterHookCallback;
+import io.github.libxposed.api.XposedInterface.MethodUnhooker;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 
 /**
  * SuperPatcher module provides core hooking capabilities for modifying methods, accessing fields,
  * and loading custom code into target applications.
  */
+@XposedPlugin(
+    id = "com.wobbz.superpatcher",
+    name = "Super Patcher",
+    description = "Advanced dynamic patching and hooking framework",
+    version = "1.0.0",
+    scope = {"*"} // Needs to hook any app
+)
+@HotReloadable
 public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     private static final String TAG = "SuperPatcherModule";
     private static final String MODULE_ID = "com.wobbz.SuperPatcher";
@@ -44,7 +56,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     public static final String SERVICE_KEY = "com.wobbz.SuperPatcher.service";
     
     // Stores active hooks to support unhooking during hot reload
-    private final Map<String, List<XC_MethodHook.Unhook>> mActiveHooks = new ConcurrentHashMap<>();
+    private final Map<String, List<MethodUnhooker<?>>> mActiveHooks = new ConcurrentHashMap<>();
     
     // Store custom class loaders
     private final Map<String, DexClassLoader> mCustomClassLoaders = new ConcurrentHashMap<>();
@@ -53,21 +65,88 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     private SettingsHelper mSettings;
     private boolean mVerboseLogging;
     private FeatureManager mFeatureManager;
+    private XposedInterface mXposedInterface;
+    
+    // Store params for hot reload
+    private PackageLoadedParam mLastParam;
     
     /**
      * Handle a package being loaded.
      * This is the main entry point for LSPosed modules.
      *
-     * @param context The context for this module.
-     * @param lpparam The parameters for the loaded package.
+     * @param param The parameters for the loaded package.
      */
     @Override
-    public void onPackageLoaded(PackageLoadedParam lpparam) throws Throwable {
-        Context context = lpparam.appInfo != null ?
-            XposedBridge.sInitialApplication.createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY) :
-            XposedBridge.sInitialApplication;
+    public void onPackageLoaded(PackageLoadedParam param) {
+        try {
+            // Store param for hot reload
+            mLastParam = param;
+            
+            // Get context for the loaded package
+            Context context = param.getAppContext();
+            if (context == null) {
+                // Try to get application context via another method if available
+                context = param.getSystemContext();
+            }
+            
+            mContext = context;
+            mXposedInterface = param.getXposed();
+            
+            // Initialize settings if not already done
+            if (mSettings == null && context != null) {
+                mSettings = new SettingsHelper(context, MODULE_ID);
+                mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
+                mFeatureManager = FeatureManager.getInstance(context);
+                
+                // Register this instance as a service for other modules to use
+                mFeatureManager.registerService(SERVICE_KEY, this);
+            }
+            
+            // Check if this package is enabled
+            String[] enabledApps = mSettings.getStringArray("enabledApps");
+            if (enabledApps == null || !isPackageEnabled(param.getPackageName(), enabledApps)) {
+                return;
+            }
+            
+            log("Handling package: " + param.getPackageName());
+            
+            // Apply method patches
+            applyMethodPatches(param);
+            
+            // Load custom DEX files if enabled
+            if (mSettings.getBoolean("loadCustomDex", false)) {
+                loadCustomDexFiles(param);
+            }
+        } catch (Exception e) {
+            LoggingHelper.error(TAG, "Error in onPackageLoaded for " + param.getPackageName(), e);
+        }
+    }
+    
+    /**
+     * Initialize the module.
+     *
+     * @param param The parameters for the module initialization.
+     */
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        try {
+            // Store XposedInterface
+            mXposedInterface = param.getXposed();
+            
+            log("SuperPatcher module loaded");
+        } catch (Exception e) {
+            LoggingHelper.error(TAG, "Error in onModuleLoaded", e);
+        }
+    }
+    
+    /**
+     * Initialize with context.
+     */
+    @Override
+    public void initialize(Context context, XposedInterface xposedInterface) {
+        this.mContext = context;
+        this.mXposedInterface = xposedInterface;
         
-        mContext = context;
         mSettings = new SettingsHelper(context, MODULE_ID);
         mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
         mFeatureManager = FeatureManager.getInstance(context);
@@ -75,39 +154,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
         // Register this instance as a service for other modules to use
         mFeatureManager.registerService(SERVICE_KEY, this);
         
-        // Check if this package is enabled
-        String[] enabledApps = mSettings.getStringArray("enabledApps");
-        if (enabledApps == null || !isPackageEnabled(lpparam.packageName, enabledApps)) {
-            return;
-        }
-        
-        log("Handling package: " + lpparam.packageName);
-        
-        // Apply method patches
-        applyMethodPatches(lpparam);
-        
-        // Load custom DEX files if enabled
-        if (mSettings.getBoolean("loadCustomDex", false)) {
-            loadCustomDexFiles(lpparam);
-        }
-    }
-    
-    /**
-     * Initialize the module.
-     *
-     * @param startupParam The parameters for the module initialization.
-     */
-    @Override
-    public void onModuleLoaded(ModuleLoadedParam startupParam) throws Throwable {
-        // Initialize settings when module is loaded
-        if (XposedBridge.sInitialApplication != null) {
-            mContext = XposedBridge.sInitialApplication.getApplicationContext();
-            mSettings = new SettingsHelper(mContext, MODULE_ID);
-            mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
-            mFeatureManager = FeatureManager.getInstance(mContext);
-            
-            log("SuperPatcher initialized");
-        }
+        log("SuperPatcher initialized with context");
     }
     
     /**
@@ -129,9 +176,9 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     /**
      * Apply method patches defined in settings to the loaded package.
      *
-     * @param lpparam The parameters for the loaded package.
+     * @param param The parameters for the loaded package.
      */
-    private void applyMethodPatches(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void applyMethodPatches(PackageLoadedParam param) {
         try {
             String patchesJson = mSettings.getString("patchDefinitions", "[]");
             JSONArray patches = new JSONArray(patchesJson);
@@ -141,7 +188,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 
                 // Check if this patch applies to the current package
                 String targetPackage = patch.optString("package", "");
-                if (!targetPackage.isEmpty() && !lpparam.packageName.equals(targetPackage)) {
+                if (!targetPackage.isEmpty() && !param.getPackageName().equals(targetPackage)) {
                     continue;
                 }
                 
@@ -157,12 +204,12 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 if (paramTypesJson != null) {
                     parameterTypes = new Object[paramTypesJson.length()];
                     for (int j = 0; j < paramTypesJson.length(); j++) {
-                        parameterTypes[j] = getClassFromName(paramTypesJson.getString(j), lpparam.classLoader);
+                        parameterTypes[j] = getClassFromName(paramTypesJson.getString(j), param.getClassLoader());
                     }
                 }
                 
                 // Apply the hook
-                applyHook(lpparam, className, methodName, parameterTypes, hookType, patch);
+                applyHook(param, className, methodName, parameterTypes, hookType, patch);
             }
         } catch (JSONException e) {
             LoggingHelper.error(TAG, "Error parsing patch definitions", e);
@@ -172,63 +219,79 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     /**
      * Apply a hook to a method.
      *
-     * @param lpparam The parameters for the loaded package.
+     * @param param The parameters for the loaded package.
      * @param className The class name to hook.
      * @param methodName The method name to hook.
      * @param parameterTypes The parameter types for the method.
      * @param hookType The type of hook to apply (before, after, replace).
      * @param config Additional configuration for the hook.
      */
-    private void applyHook(XC_LoadPackage.LoadPackageParam lpparam, String className, 
+    private void applyHook(PackageLoadedParam param, String className, 
                            String methodName, Object[] parameterTypes, String hookType, 
                            JSONObject config) {
         try {
-            Class<?> targetClass = findClassWithPermissionCheck(className, lpparam.classLoader);
+            Class<?> targetClass = findClassWithPermissionCheck(className, param.getClassLoader());
             if (targetClass == null) {
                 LoggingHelper.error(TAG, "Failed to find class: " + className);
                 return;
             }
             
-            // Create hook based on type
-            XC_MethodHook hook;
-            
-            if (hookType.equals("replace")) {
-                hook = new MethodReplacementHook(config, lpparam.classLoader);
-            } else {
-                hook = new MethodHook(hookType, config, lpparam.classLoader);
+            // Get XposedInterface
+            XposedInterface xposed = param.getXposed();
+            if (xposed == null) {
+                LoggingHelper.error(TAG, "XposedInterface is null, cannot apply hook");
+                return;
             }
             
-            // Apply hook based on method type
-            List<XC_MethodHook.Unhook> unhooks = new ArrayList<>();
+            Method targetMethod = null;
+            List<MethodUnhooker<?>> unhookers = new ArrayList<>();
             
-            if (methodName.equals("$init")) {
-                // Constructor hook
-                if (parameterTypes == null) {
-                    unhooks.add(XposedBridge.hookAllConstructors(targetClass, hook));
-                } else {
-                    Constructor<?> constructor = findConstructorWithPermissionCheck(targetClass, parameterTypes);
-                    if (constructor != null) {
-                        unhooks.add(XposedBridge.hookMethod(constructor, hook));
+            // Try to find the exact method
+            if (parameterTypes != null) {
+                targetMethod = findMethodWithPermissionCheck(targetClass, methodName, parameterTypes);
+                if (targetMethod != null) {
+                    // Hook the method based on the hook type
+                    MethodUnhooker<?> unhooker = null;
+                    if (hookType.equals("replace")) {
+                        unhooker = xposed.hook(targetMethod, new ReplaceHooker(config, param.getClassLoader()));
+                    } else if (hookType.equals("before") || hookType.equals("after") || hookType.equals("both")) {
+                        unhooker = xposed.hook(targetMethod, new BeforeAfterHooker(hookType, config, param.getClassLoader()));
+                    }
+                    
+                    if (unhooker != null) {
+                        unhookers.add(unhooker);
+                        log("Hooked method: " + className + "." + methodName);
                     }
                 }
-            } else {
-                // Method hook
-                if (parameterTypes == null) {
-                    unhooks.add(XposedBridge.hookAllMethods(targetClass, methodName, hook));
-                } else {
-                    Method method = findMethodWithPermissionCheck(targetClass, methodName, parameterTypes);
-                    if (method != null) {
-                        unhooks.add(XposedBridge.hookMethod(method, hook));
+            } 
+            // If parameterTypes is null or method not found, try to hook all methods with the name
+            else {
+                Method[] methods = targetClass.getDeclaredMethods();
+                for (Method method : methods) {
+                    if (method.getName().equals(methodName)) {
+                        MethodUnhooker<?> unhooker = null;
+                        if (hookType.equals("replace")) {
+                            unhooker = xposed.hook(method, new ReplaceHooker(config, param.getClassLoader()));
+                        } else if (hookType.equals("before") || hookType.equals("after") || hookType.equals("both")) {
+                            unhooker = xposed.hook(method, new BeforeAfterHooker(hookType, config, param.getClassLoader()));
+                        }
+                        
+                        if (unhooker != null) {
+                            unhookers.add(unhooker);
+                            log("Hooked method: " + className + "." + methodName + " (variant)");
+                        }
                     }
                 }
             }
             
-            if (!unhooks.isEmpty()) {
-                // Store the unhooks for hot reload
-                String hookKey = getHookKey(lpparam.packageName, className, methodName, parameterTypes);
-                mActiveHooks.put(hookKey, unhooks);
+            if (!unhookers.isEmpty()) {
+                // Store the unhookers for hot reload
+                String hookKey = getHookKey(param.getPackageName(), className, methodName, parameterTypes);
+                mActiveHooks.put(hookKey, unhookers);
                 
-                log("Applied " + hookType + " hook to " + className + "." + methodName);
+                log("Successfully hooked " + className + "." + methodName);
+            } else {
+                LoggingHelper.error(TAG, "Failed to hook " + className + "." + methodName);
             }
             
         } catch (Throwable t) {
@@ -391,9 +454,9 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     /**
      * Load custom DEX files into the target application.
      *
-     * @param lpparam The parameters for the loaded package.
+     * @param param The parameters for the loaded package.
      */
-    private void loadCustomDexFiles(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void loadCustomDexFiles(PackageLoadedParam param) {
         String[] dexPaths = mSettings.getStringArray("customDexPaths");
         if (dexPaths == null || dexPaths.length == 0) {
             return;
@@ -413,7 +476,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                         dexFile.getAbsolutePath(),
                         optimizedDir.getAbsolutePath(),
                         null,
-                        lpparam.classLoader
+                        param.getClassLoader()
                 );
                 
                 mCustomClassLoaders.put(dexPath, loader);
@@ -451,7 +514,8 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 return null;
             }
             
-            Field field = XposedHelpers.findField(clazz, fieldName);
+            Field field = clazz.getDeclaredField(fieldName);
+            field.setAccessible(true);
             return field.get(obj);
         } catch (Throwable t) {
             LoggingHelper.error(TAG, "Error getting field value", t);
@@ -484,7 +548,14 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
      */
     public boolean setFieldValue(Object obj, String className, String fieldName, Object value, ClassLoader classLoader) {
         try {
-            XposedHelpers.findAndHookField(className, classLoader, fieldName, value);
+            Class<?> clazz = findClassWithPermissionCheck(className, classLoader);
+            if (clazz == null) {
+                return false;
+            }
+            
+            Field field = clazz.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(obj, value);
             return true;
         } catch (Throwable t) {
             LoggingHelper.error(TAG, "Error setting field value", t);
@@ -516,7 +587,30 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
      */
     public Object createInstance(String className, ClassLoader classLoader, Object... constructorParams) {
         try {
-            return XposedHelpers.newInstance(XposedHelpers.findClass(className, classLoader), constructorParams);
+            Class<?> clazz = findClassWithPermissionCheck(className, classLoader);
+            if (clazz == null) {
+                return null;
+            }
+            
+            if (constructorParams == null || constructorParams.length == 0) {
+                // Use default constructor
+                Constructor<?> constructor = clazz.getDeclaredConstructor();
+                constructor.setAccessible(true);
+                return constructor.newInstance();
+            } else {
+                // Find matching constructor
+                Class<?>[] paramTypes = new Class[constructorParams.length];
+                for (int i = 0; i < constructorParams.length; i++) {
+                    paramTypes[i] = constructorParams[i] != null ? constructorParams[i].getClass() : null;
+                }
+                
+                Constructor<?> constructor = findConstructorWithPermissionCheck(clazz, paramTypes);
+                if (constructor != null) {
+                    constructor.setAccessible(true);
+                    return constructor.newInstance(constructorParams);
+                }
+            }
+            return null;
         } catch (Throwable t) {
             LoggingHelper.error(TAG, "Error creating instance", t);
             
@@ -526,7 +620,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 try {
                     Method createInstanceMethod = permissionOverride.getClass().getMethod("createInstance", 
                             String.class, ClassLoader.class, Object[].class);
-                    return createInstanceMethod.invoke(permissionOverride, className, classLoader, constructorParams);
+                    return createInstanceMethod.invoke(permissionOverride, className, classLoader, new Object[] { constructorParams });
                 } catch (Throwable e) {
                     LoggingHelper.error(TAG, "Error using PermissionOverride for instance creation", e);
                 }
@@ -548,7 +642,29 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
      */
     public Object invokeMethod(Object obj, String className, String methodName, ClassLoader classLoader, Object... params) {
         try {
-            return XposedHelpers.callMethod(obj, methodName, params);
+            Class<?> clazz = null;
+            if (obj != null) {
+                clazz = obj.getClass();
+            } else if (className != null) {
+                clazz = findClassWithPermissionCheck(className, classLoader);
+            }
+            
+            if (clazz == null) {
+                return null;
+            }
+            
+            // Find matching method
+            Class<?>[] paramTypes = new Class[params.length];
+            for (int i = 0; i < params.length; i++) {
+                paramTypes[i] = params[i] != null ? params[i].getClass() : null;
+            }
+            
+            Method method = findMethodWithPermissionCheck(clazz, methodName, paramTypes);
+            if (method != null) {
+                method.setAccessible(true);
+                return method.invoke(obj, params);
+            }
+            return null;
         } catch (Throwable t) {
             LoggingHelper.error(TAG, "Error invoking method", t);
             
@@ -558,7 +674,7 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 try {
                     Method invokeMethodMethod = permissionOverride.getClass().getMethod("invokeMethod", 
                             Object.class, String.class, String.class, ClassLoader.class, Object[].class);
-                    return invokeMethodMethod.invoke(permissionOverride, obj, className, methodName, classLoader, params);
+                    return invokeMethodMethod.invoke(permissionOverride, obj, className, methodName, classLoader, new Object[] { params });
                 } catch (Throwable e) {
                     LoggingHelper.error(TAG, "Error using PermissionOverride for method invocation", e);
                 }
@@ -635,49 +751,66 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     private final Map<String, HookCallback> mCallbacks = new ConcurrentHashMap<>();
     
     /**
-     * Method hook implementation.
-     * Handles before and after hooks based on configuration.
+     * Before/After hook implementation using the new Xposed API.
      */
-    private class MethodHook extends XC_MethodHook {
+    private class BeforeAfterHooker implements Hooker {
         private final String mType;
         private final JSONObject mConfig;
         private final ClassLoader mClassLoader;
         
-        MethodHook(String type, JSONObject config, ClassLoader classLoader) {
+        BeforeAfterHooker(String type, JSONObject config, ClassLoader classLoader) {
             mType = type;
             mConfig = config;
             mClassLoader = classLoader;
         }
         
         @Override
-        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+        public void before(BeforeHookCallback callback) throws Throwable {
             if (mType.equals("before") || mType.equals("both")) {
-                handleHookedMethod(param, true);
+                handleHookedMethod(callback, true);
             }
         }
         
         @Override
-        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+        public void after(AfterHookCallback callback) throws Throwable {
             if (mType.equals("after") || mType.equals("both")) {
-                handleHookedMethod(param, false);
+                handleHookedMethod(callback, false);
             }
         }
         
-        private void handleHookedMethod(MethodHookParam param, boolean isBefore) {
+        private void handleHookedMethod(Object callback, boolean isBefore) {
             try {
                 // Extract hook information for callbacks
                 String hookId = null;
-                if (param.method != null) {
-                    String className = param.method.getDeclaringClass().getName();
-                    String methodName = param.method.getName();
-                    String packageName = param.thisObject != null ? 
-                            param.thisObject.getClass().getClassLoader().toString() : "unknown";
+                Object method = null;
+                Object thisObject = null;
+                Object[] args = null;
+                Object result = null;
+                
+                if (isBefore) {
+                    BeforeHookCallback beforeCallback = (BeforeHookCallback) callback;
+                    method = beforeCallback.getMember();
+                    thisObject = beforeCallback.getThisObject();
+                    args = beforeCallback.getArgs();
+                } else {
+                    AfterHookCallback afterCallback = (AfterHookCallback) callback;
+                    method = afterCallback.getMember();
+                    thisObject = afterCallback.getThisObject();
+                    args = afterCallback.getArgs();
+                    result = afterCallback.getResult();
+                }
+                
+                if (method != null) {
+                    String className = ((Member)method).getDeclaringClass().getName();
+                    String methodName = ((Member)method).getName();
+                    String packageName = thisObject != null ? 
+                            thisObject.getClass().getClassLoader().toString() : "unknown";
                     hookId = packageName + "#" + className + "#" + methodName;
                     
                     // Invoke callback if registered
-                    HookCallback callback = mCallbacks.get(hookId);
-                    if (callback != null) {
-                        callback.onHook(param.method, param.thisObject, param.args, param.getResult(), isBefore);
+                    HookCallback hookCallback = mCallbacks.get(hookId);
+                    if (hookCallback != null) {
+                        hookCallback.onHook((Member)method, thisObject, args, result, isBefore);
                     }
                 }
                 
@@ -690,9 +823,9 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 // Log arguments if requested
                 if (logArgs && mVerboseLogging) {
                     StringBuilder argsLog = new StringBuilder("Arguments: [");
-                    for (int i = 0; i < param.args.length; i++) {
-                        argsLog.append(param.args[i]);
-                        if (i < param.args.length - 1) {
+                    for (int i = 0; i < args.length; i++) {
+                        argsLog.append(args[i]);
+                        if (i < args.length - 1) {
                             argsLog.append(", ");
                         }
                     }
@@ -703,21 +836,21 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
                 // Modify arguments if requested
                 if (modifyArgs && mConfig.has("argValues")) {
                     JSONArray argValues = mConfig.getJSONArray("argValues");
-                    for (int i = 0; i < Math.min(argValues.length(), param.args.length); i++) {
+                    for (int i = 0; i < Math.min(argValues.length(), args.length); i++) {
                         if (!argValues.isNull(i)) {
-                            param.args[i] = convertJsonValue(argValues.get(i));
+                            args[i] = convertJsonValue(argValues.get(i));
                         }
                     }
                 }
                 
                 // Log return value if requested
                 if (logReturn && mVerboseLogging) {
-                    log("Return value: " + param.getResult());
+                    log("Return value: " + result);
                 }
                 
                 // Modify return value if requested
                 if (modifyReturn && mConfig.has("returnValue")) {
-                    param.setResult(convertJsonValue(mConfig.get("returnValue")));
+                    ((AfterHookCallback)callback).setResult(convertJsonValue(mConfig.get("returnValue")));
                 }
                 
             } catch (Throwable t) {
@@ -752,56 +885,53 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
     }
     
     /**
-     * Method replacement hook implementation.
-     * Completely replaces the original method implementation.
+     * Method replacement hook implementation using the new Xposed API.
      */
-    private class MethodReplacementHook extends XC_MethodReplacement {
+    private class ReplaceHooker implements Hooker {
         private final JSONObject mConfig;
         private final ClassLoader mClassLoader;
         
-        MethodReplacementHook(JSONObject config, ClassLoader classLoader) {
+        ReplaceHooker(JSONObject config, ClassLoader classLoader) {
             mConfig = config;
             mClassLoader = classLoader;
         }
         
         @Override
-        protected Object replaceHookedMethod(MethodHookParam param) throws Throwable {
+        public void before(BeforeHookCallback callback) throws Throwable {
             try {
                 // Extract hook information for callbacks
                 String hookId = null;
-                if (param.method != null) {
-                    String className = param.method.getDeclaringClass().getName();
-                    String methodName = param.method.getName();
-                    String packageName = param.thisObject != null ? 
-                            param.thisObject.getClass().getClassLoader().toString() : "unknown";
+                if (callback.getMember() != null) {
+                    String className = callback.getMember().getDeclaringClass().getName();
+                    String methodName = callback.getMember().getName();
+                    String packageName = callback.getThisObject() != null ? 
+                            callback.getThisObject().getClass().getClassLoader().toString() : "unknown";
                     hookId = packageName + "#" + className + "#" + methodName;
                     
                     // Invoke callback if registered
-                    HookCallback callback = mCallbacks.get(hookId);
-                    if (callback != null) {
-                        callback.onHook(param.method, param.thisObject, param.args, null, true);
+                    HookCallback hookCallback = mCallbacks.get(hookId);
+                    if (hookCallback != null) {
+                        hookCallback.onHook(callback.getMember(), callback.getThisObject(), callback.getArgs(), null, true);
                     }
                 }
                 
                 // Get return value from config
                 if (mConfig.has("returnValue")) {
-                    return convertJsonValue(mConfig.get("returnValue"));
+                    callback.returnAndSkip(convertJsonValue(mConfig.get("returnValue")));
+                } else {
+                    // Default to null
+                    callback.returnAndSkip(null);
                 }
-                
-                // Execute custom code if specified
-                if (mConfig.has("customCode")) {
-                    // This is a placeholder for custom code execution
-                    // In a real implementation, this might execute JavaScript or another language
-                    log("Custom code execution not implemented yet");
-                }
-                
-                // Default to null
-                return null;
                 
             } catch (Throwable t) {
                 LoggingHelper.error(TAG, "Error in method replacement", t);
-                return null;
+                callback.returnAndSkip(null);
             }
+        }
+        
+        @Override
+        public void after(AfterHookCallback callback) {
+            // Method replacement doesn't need after logic
         }
         
         private Object convertJsonValue(Object value) throws JSONException {
@@ -839,9 +969,13 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
         log("Hot reloading SuperPatcher");
         
         // Unhook all active hooks
-        for (List<XC_MethodHook.Unhook> unhooks : mActiveHooks.values()) {
-            for (XC_MethodHook.Unhook unhook : unhooks) {
-                unhook.unhook();
+        for (List<MethodUnhooker<?>> unhookers : mActiveHooks.values()) {
+            for (MethodUnhooker<?> unhooker : unhookers) {
+                try {
+                    unhooker.unhook();
+                } catch (Exception e) {
+                    LoggingHelper.error(TAG, "Error unhooking method during hot reload", e);
+                }
             }
         }
         
@@ -850,6 +984,24 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
         
         // Clear custom class loaders
         mCustomClassLoaders.clear();
+        
+        // Reload settings
+        if (mContext != null) {
+            mSettings = new SettingsHelper(mContext, MODULE_ID);
+            mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
+        }
+        
+        // Re-apply hooks if we have stored the last package param
+        if (mLastParam != null) {
+            log("Re-applying hooks for " + mLastParam.getPackageName());
+            // Apply method patches
+            applyMethodPatches(mLastParam);
+            
+            // Load custom DEX files if enabled
+            if (mSettings != null && mSettings.getBoolean("loadCustomDex", false)) {
+                loadCustomDexFiles(mLastParam);
+            }
+        }
         
         log("SuperPatcher hot reload complete");
     }

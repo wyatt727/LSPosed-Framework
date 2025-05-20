@@ -4,6 +4,30 @@
 
 IntentMaster is a powerful Xposed module for intercepting, modifying, redirecting, and logging intents between Android applications. It provides a rule-based system to control how intents flow through the system, allowing for deep customization of app-to-app communication. It utilizes `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` classes for its core hooking mechanisms.
 
+## Module Implementation
+
+IntentMaster implements the modern LSPosed API interfaces and annotations:
+
+```java
+@XposedPlugin(
+    id = "com.wobbz.IntentMaster",
+    name = "Intent Master",
+    description = "Intercepts, modifies, redirects, and logs intents between applications",
+    version = "1.0.0",
+    author = "wobbz"
+)
+@HotReloadable
+public class IntentMasterModule implements IModulePlugin, IHotReloadable {
+    // Implementation...
+}
+```
+
+The module uses:
+- `@XposedPlugin` to identify the module within the LSPosed framework
+- `@HotReloadable` to support dynamic reloading of the module without restarting the device
+- `IModulePlugin` to integrate with the Framework
+- `IHotReloadable` to implement the `onHotReload()` method for hot reload support
+
 ## Key Features
 
 - **Intent Interception**: Hooks key Android intent-related methods (e.g., `Activity.startActivity`, `Context.sendBroadcast`) using the Xposed framework to capture intents in flight.
@@ -13,6 +37,73 @@ IntentMaster is a powerful Xposed module for intercepting, modifying, redirectin
 - **Intent Logging**: Keep a detailed log of all intercepted intents and actions taken.
 - **Rule-Based System**: Define complex matching rules in JSON format to target specific intents.
 - **Test Intent Feature**: Create and send test intents to see how they're handled by the rules.
+
+## Test Intent Feature
+
+The Test Intent Feature allows you to create and send test intents to validate your rules without needing to set up complex test scenarios with other apps. This is implemented through the `sendTestIntent` method:
+
+```java
+public String sendTestIntent(JSONObject testIntentConfig) {
+    // Implementation that creates and processes a test intent
+    // based on the provided configuration
+}
+```
+
+### Test Intent Configuration
+
+The test intent is configured using a JSON object with the following properties:
+
+```json
+{
+  "action": "android.intent.action.VIEW",
+  "data": "https://example.com",
+  "type": "text/plain",
+  "component": "com.example.app/.MainActivity",
+  "categories": ["android.intent.category.DEFAULT"],
+  "extras": [
+    {
+      "key": "test_key",
+      "value": "test_value",
+      "type": "STRING"
+    }
+  ],
+  "flags": 0,
+  "sourcePackage": "com.example.sourceapp",
+  "send": true,
+  "startActivity": true
+}
+```
+
+### Configuration Properties
+
+- **`action`**: The intent action (e.g., "android.intent.action.VIEW")
+- **`data`**: The intent data URI (e.g., "https://example.com")
+- **`type`**: The MIME type (e.g., "text/plain")
+- **`component`**: The target component in flattened form (e.g., "com.example.app/.MainActivity")
+- **`categories`**: Array of intent categories to add
+- **`extras`**: Array of extra values to add to the intent
+- **`flags`**: Integer flags to set on the intent
+- **`sourcePackage`**: The package name to use as the source (defaults to the module's package)
+- **`send`**: Whether to actually send the intent or just simulate processing
+- **`startActivity`**, **`startService`**, **`sendBroadcast`**: How to send the intent (if `send` is true)
+
+### Usage Example
+
+To use the Test Intent Feature:
+
+1. Configure a test intent in JSON format
+2. Pass it to the `sendTestIntent` method
+3. The method will:
+   - Create the intent according to configuration
+   - Process it through your defined rules
+   - Optionally send the processed intent
+   - Return a result message describing what happened
+
+This feature is particularly useful for:
+- Debugging complex rule sets
+- Testing modifications to intents
+- Verifying that intent redirection works as expected
+- Testing how apps respond to modified intents
 
 ## Integration with Other Modules
 
@@ -192,6 +283,30 @@ This rule blocks analytics broadcast intents:
 }
 ```
 
+### Example 4: Using the Test Intent Feature
+
+This example demonstrates using the test intent feature to test a rule:
+
+```json
+{
+  "testIntent": {
+    "action": "android.intent.action.VIEW",
+    "data": "https://example.com",
+    "type": "text/plain",
+    "component": "com.example.app/.MainActivity",
+    "extras": [
+      {
+        "key": "test_key",
+        "value": "test_value",
+        "type": "STRING"
+      }
+    ],
+    "send": true,
+    "startActivity": true
+  }
+}
+```
+
 ## API Usage from Other Modules
 
 IntentMaster does not currently expose a programmatic API for other Xposed modules to call directly. Its functionality is self-contained and primarily controlled via its `settings.json` configuration file, which defines the intent processing rules.
@@ -207,4 +322,4 @@ IntentMaster does not currently expose a programmatic API for other Xposed modul
 
 ## Development Environment
 
-This module is developed using Java 17. 
+This module is developed using Java 17 and implements the modern LSPosed API with proper annotations for plugin identification and hot reload support. 
