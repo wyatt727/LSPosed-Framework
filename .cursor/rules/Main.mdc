@@ -8,7 +8,7 @@ alwaysApply: true
 2. Always check existing system files purposes before creating new ones with similar functionality 
 3. Always include comprehensive and exhaustive documentation for EVERYTHING
 4. When making fixes or additions, first read the target file, then say a detailed plan with line numbers, INCLUDING POTENTIAL ISSUES, then begin thoughtful context-aware implementation.
-5. Search the web with web_search when necesarry to ensure you're implementing everything correctly.
+5. Use the contents in the local git directory atlibxposed-api anytime there is confusion or concerns regarding the usage of the libxposed api within the application. 
 
 
 # Optional

@@ -1,30 +1,30 @@
 package com.wobbz.framework;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.IXposedHookZygoteInit;
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
+import io.github.libxposed.api.XposedModuleInterface;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
 /**
  * Interface that all modules must implement to provide LSPosed hooks.
  */
-public interface IModulePlugin extends IXposedHookZygoteInit, IXposedHookLoadPackage {
+public interface IModulePlugin extends XposedModuleInterface {
     /**
-     * Initialize the module during Zygote startup.
-     * This method is called once when the Zygote process starts.
+     * Called when the module is loaded in Zygote
+     * This is equivalent to the onModuleLoaded method in XposedModuleInterface
      * 
-     * @param startupParam Information about the module being loaded
-     * @throws Throwable if any error occurs
+     * @param startupParam Information about the process in which the module is loaded
      */
-    @Override
-    void initZygote(StartupParam startupParam) throws Throwable;
-    
+    default void onModuleLoaded(ModuleLoadedParam startupParam) {
+        // Default empty implementation
+    }
+
     /**
-     * Handle the loading of a package.
-     * This method is called whenever a new app process is created.
+     * Get the unique module ID.
+     * This is used for configuration and tracking.
      * 
-     * @param lpparam Information about the package being loaded
-     * @throws Throwable if any error occurs
+     * @return The module ID
      */
-    @Override
-    void handleLoadPackage(LoadPackageParam lpparam) throws Throwable;
+    default String getModuleId() {
+        return this.getClass().getName();
+    }
 } 

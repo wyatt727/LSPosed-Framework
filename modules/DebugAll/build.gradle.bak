@@ -1,6 +1,4 @@
 apply plugin: 'com.android.library'
-// Add reference to the xposed-api config helper
-apply from: "${rootProject.projectDir}/xposed-api-config.gradle"
 
 android {
   compileSdkVersion rootProject.ext.compileSdk
@@ -25,9 +23,7 @@ repositories {
 }
 
   implementation project(':framework')
-  compileOnly fileTree(dir: 'libs', include: ['*.jar'])
-  // Local xposed-api.aar reference is no longer needed
-  // compileOnly files('libs/xposed-api.aar')
+  compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
 }
 
 // Enable hot-reload for this module (TODO: Fix the lsposed plugin)

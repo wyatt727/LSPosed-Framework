@@ -78,20 +78,26 @@ Replace YAML descriptors with Java annotations:
   }
 )
 @HotReloadable
-public class DebugAllModule implements IModulePlugin {
+public class DebugAllModule implements IXposedModule {
   @Override
-  public void initZygote(StartupParam param) {
+  public void onInit(XposedContext context, XposedInterface xposedInterface) {
     // Initialize
   }
 
   @Override
-  public void handleLoadPackage(LoadPackageParam param) {
-    // Hook logic
+  public void onSystemServerLoaded(XposedInterface xposedInterface) {
+    // Hook system server components
+  }
+
+  @Override
+  public void onPackageLoaded(XposedInterface xposedInterface, String packageName) {
+    // Hook components in the loaded package
   }
 
   @Override
   public void onHotReload() {
-    // Cleanup and reinitialize
+    // Clean up existing hooks and reinitialize
+    // This enables updating code without rebooting
   }
 }
 ```
@@ -232,7 +238,7 @@ Framework automatically:
 
 1. Create module directory
 2. Add `@XposedPlugin` annotation
-3. Implement `IModulePlugin`
+3. Implement `IXposedModule`
 4. Add `module-info.json` for dependencies
 5. Create `settings.json` if needed
 6. Add resource overlays if needed

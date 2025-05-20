@@ -30,6 +30,20 @@ public class ComponentAccessLog {
     }
     
     /**
+     * Create a new component access log entry with timestamp.
+     */
+    public ComponentAccessLog(String packageName, String componentName, String componentType, 
+                             String callingPackage, long timestamp) {
+        this.componentType = componentType;
+        this.componentName = componentName;
+        this.callingPackage = callingPackage;
+        this.action = "EXPOSE";  // Default action
+        this.timestamp = timestamp;
+        this.wasExported = true;
+        this.wasPermissionBypassed = false;
+    }
+    
+    /**
      * Create a ComponentAccessLog from a JSON object.
      */
     public static ComponentAccessLog fromJson(JSONObject json) throws JSONException {

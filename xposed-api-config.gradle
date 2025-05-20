@@ -1,0 +1,23 @@
+/**
+ * Helper script for modules to use the central xposed-api.aar
+ * Include this in module build.gradle files with: apply from: "${rootProject.projectDir}/xposed-api-config.gradle"
+ * 
+ * The central xposed-api.aar is located at framework/libs/xposed-api.aar
+ * This ensures all modules use the same, verified version of the API
+ */
+
+// This configuration block should be applied after the dependencies block in each module's build.gradle
+project.afterEvaluate {
+    dependencies {
+        // Remove any local xposed-api.aar reference if it exists
+        configurations.compileOnly.dependencies.removeAll { 
+            it.name == 'xposed-api.aar'
+        }
+        
+        // Add the central xposed-api.aar
+        compileOnly files(rootProject.ext.xposedApiPath)
+    }
+}
+
+// Log which xposed-api.aar is being used for this module
+println "Module '${project.name}' using central xposed-api.aar from: ${rootProject.ext.xposedApiPath}" 

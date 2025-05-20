@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import de.robv.android.xposed.XposedBridge;
+import io.github.libxposed.api.XposedInterface;
 
 /**
  * Helper class for logging in modules.
@@ -33,6 +33,7 @@ public class LoggingHelper {
     
     private static LogConfig sConfig = new LogConfig();
     private static boolean sConfigLoaded = false;
+    private static XposedInterface sXposedInterface;
     
     /**
      * Initialize the logging helper.
@@ -40,6 +41,15 @@ public class LoggingHelper {
      */
     public static void init() {
         loadConfig();
+    }
+    
+    /**
+     * Set the XposedInterface for logging
+     * 
+     * @param xposedInterface The XposedInterface to use for logging
+     */
+    public static void setXposedInterface(XposedInterface xposedInterface) {
+        sXposedInterface = xposedInterface;
     }
     
     /**
@@ -169,8 +179,66 @@ public class LoggingHelper {
     public static void error(String tag, String message, Throwable throwable) {
         if (getLogLevel(tag) <= LEVEL_ERROR) {
             log(tag, message + ": " + throwable.getMessage());
-            XposedBridge.log(throwable);
+            // Convert throwable to string instead of passing it directly
+            String stackTrace = getStackTraceString(throwable);
+            log(tag, stackTrace);
         }
+    }
+    
+    /**
+     * Modern naming for logging methods - logs at INFO level
+     * 
+     * @param tag The tag.
+     * @param message The message.
+     */
+    public static void logInfo(String tag, String message) {
+        info(tag, message);
+    }
+    
+    /**
+     * Modern naming for logging methods - logs at DEBUG level
+     * 
+     * @param tag The tag.
+     * @param message The message.
+     */
+    public static void logDebug(String tag, String message) {
+        debug(tag, message);
+    }
+    
+    /**
+     * Modern naming for logging methods - logs an error with a Throwable
+     * 
+     * @param tag The tag.
+     * @param throwable The exception.
+     */
+    public static void logError(String tag, Throwable throwable) {
+        error(tag, "Error", throwable);
+    }
+    
+    /**
+     * Convert a Throwable stack trace to a String
+     * 
+     * @param throwable The throwable
+     * @return String representation of the stack trace
+     */
+    private static String getStackTraceString(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append(throwable.toString()).append("\n");
+        
+        for (StackTraceElement element : throwable.getStackTrace()) {
+            sb.append("\tat ").append(element.toString()).append("\n");
+        }
+        
+        Throwable cause = throwable.getCause();
+        if (cause != null) {
+            sb.append("Caused by: ").append(getStackTraceString(cause));
+        }
+        
+        return sb.toString();
     }
     
     /**
@@ -180,10 +248,25 @@ public class LoggingHelper {
      * @param message The message.
      */
     private static void log(String tag, String message) {
-        XposedBridge.log("[" + tag + "] " + message);
-        
-        // Also log to Android's logcat
-        Log.d(tag, message);
+        try {
+            String formattedMessage = "[" + tag + "] " + message;
+            
+            // Use XposedInterface log if available
+            if (sXposedInterface != null) {
+                sXposedInterface.log(formattedMessage);
+            } else {
+                // Fallback to Android Log
+                Log.d(DEFAULT_TAG, formattedMessage);
+            }
+        } catch (Throwable t) {
+            // Last resort fallback
+            try {
+                Log.e(DEFAULT_TAG, "Error logging: " + t.getMessage());
+                Log.d(DEFAULT_TAG, "[" + tag + "] " + message);
+            } catch (Throwable ignored) {
+                // Nothing more we can do
+            }
+        }
     }
     
     /**

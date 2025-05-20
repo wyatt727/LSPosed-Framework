@@ -38,6 +38,11 @@ public @interface XposedPlugin {
     int versionCode() default 1;
     
     /**
+     * Package name for the module
+     */
+    String packageName() default "";
+    
+    /**
      * List of package names to target with this module
      */
     String[] scope() default {};

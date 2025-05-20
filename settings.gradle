@@ -4,14 +4,17 @@ dependencyResolutionManagement {
     google()
     mavenCentral()
     maven { url "https://jitpack.io" }
+    flatDir {
+      dirs "${rootDir}/framework/libs"
+    }
   }
 }
 
 rootProject.name = "LSPosedFramework"
 include ':framework'
-file('modules').listFiles().each { dir ->
-  if (dir.isDirectory()) {
-    include ":modules:${dir.name}"
-    project(":modules:${dir.name}").projectDir = dir
-  }
-} 
+include ':modules:DebugAll'
+include ':modules:DeepIntegrator'
+include ':modules:IntentMaster'
+include ':modules:NetworkGuard'
+include ':modules:PermissionOverride'
+include ':modules:SuperPatcher' 

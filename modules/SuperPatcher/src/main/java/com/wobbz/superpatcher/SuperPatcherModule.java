@@ -25,10 +25,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import dalvik.system.DexClassLoader;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import io.github.libxposed.api.XC_MethodHook;
+import io.github.libxposed.api.XposedBridge;
+import io.github.libxposed.api.XposedHelpers;
+import io.github.libxposed.api.callbacks.XC_LoadPackage;
+import io.github.libxposed.api.callbacks.XC_LoadPackage.PackageLoadedParam;
+import io.github.libxposed.api.callbacks.XC_LoadPackage.ModuleLoadedParam;
 
 /**
  * SuperPatcher module provides core hooking capabilities for modifying methods, accessing fields,
@@ -60,7 +62,11 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
      * @param lpparam The parameters for the loaded package.
      */
     @Override
-    public void handleLoadPackage(Context context, XC_LoadPackage.LoadPackageParam lpparam) {
+    public void onPackageLoaded(PackageLoadedParam lpparam) throws Throwable {
+        Context context = lpparam.appInfo != null ?
+            XposedBridge.sInitialApplication.createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY) :
+            XposedBridge.sInitialApplication;
+        
         mContext = context;
         mSettings = new SettingsHelper(context, MODULE_ID);
         mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
@@ -83,6 +89,24 @@ public class SuperPatcherModule implements IModulePlugin, IHotReloadable {
         // Load custom DEX files if enabled
         if (mSettings.getBoolean("loadCustomDex", false)) {
             loadCustomDexFiles(lpparam);
+        }
+    }
+    
+    /**
+     * Initialize the module.
+     *
+     * @param startupParam The parameters for the module initialization.
+     */
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam startupParam) throws Throwable {
+        // Initialize settings when module is loaded
+        if (XposedBridge.sInitialApplication != null) {
+            mContext = XposedBridge.sInitialApplication.getApplicationContext();
+            mSettings = new SettingsHelper(mContext, MODULE_ID);
+            mVerboseLogging = mSettings.getBoolean("verboseLogging", false);
+            mFeatureManager = FeatureManager.getInstance(mContext);
+            
+            log("SuperPatcher initialized");
         }
     }
     

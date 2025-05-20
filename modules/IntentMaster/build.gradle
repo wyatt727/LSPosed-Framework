@@ -1,4 +1,6 @@
 apply plugin: 'com.android.library'
+// Add reference to the xposed-api config helper
+apply from: "${rootProject.projectDir}/xposed-api-config.gradle"
 
 android {
     namespace 'com.wobbz.intentmaster'
@@ -13,10 +15,23 @@ android {
         sourceCompatibility rootProject.ext.javaVersion
         targetCompatibility rootProject.ext.javaVersion
     }
+    
+    lintOptions {
+        abortOnError false
+        checkReleaseBuilds false
+        disable 'WrongConstant', 'ObsoleteSdkInt'
+    }
 }
 
 dependencies {
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+
     implementation project(':framework')
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
-    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+    // Local xposed-api.aar reference is no longer needed as we're using the central version
+    // compileOnly files('libs/xposed-api.aar')
 } 

@@ -219,12 +219,12 @@ Traditional LSPosed module development requires manual descriptor files, lacks d
 
 ## 11. Dependencies
 
-* LSPosed API 0.4.2+
-* Android Gradle Plugin 8.1.0+
-* Java 8+
-* Android Studio 2023.1+
-* Ed25519 signing tools
-* CDN provider account
+* libxposed-api (source included in project)
+* Java 17+
+* Gradle 8.0+
+* Android Gradle Plugin 8.0+
+* WebSocket libraries for hot-reload
+* JSON Schema validation tools
 
 ---
 

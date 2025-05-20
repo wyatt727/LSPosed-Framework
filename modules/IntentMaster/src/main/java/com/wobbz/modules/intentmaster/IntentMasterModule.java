@@ -9,11 +9,10 @@ import android.content.ServiceConnection;
 import android.os.Build;
 import android.os.Bundle;
 
-import com.wobbz.framework.FeatureManager;
-import com.wobbz.framework.LoggingHelper;
-import com.wobbz.framework.SettingsHelper;
-import com.wobbz.framework.annotations.ModuleEntry;
-import com.wobbz.framework.models.SettingsField;
+import com.wobbz.framework.IModulePlugin;
+import com.wobbz.framework.development.LoggingHelper;
+import com.wobbz.framework.ui.models.SettingsField;
+import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.modules.intentmaster.model.IntentLog;
 import com.wobbz.modules.intentmaster.model.IntentRule;
 
@@ -21,16 +20,22 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 
-import com.github.libxposed.api.XC_MethodHook;
-import com.github.libxposed.api.XposedBridge;
-import com.github.libxposed.api.XposedHelpers;
-import com.github.libxposed.api.callbacks.XC_LoadPackage;
+import io.github.libxposed.api.XposedInterface;
+import io.github.libxposed.api.XposedInterface.BeforeHookCallback;
+import io.github.libxposed.api.XposedInterface.AfterHookCallback;
+import io.github.libxposed.api.XposedInterface.Hooker;
+import io.github.libxposed.api.XposedModuleInterface;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
 /**
  * IntentMasterModule - Intercepts, modifies, redirects, and logs intents between applications.
@@ -38,20 +43,68 @@ import com.github.libxposed.api.callbacks.XC_LoadPackage;
  * This module hooks into key Android methods responsible for intent handling and applies
  * rules defined by the user for matching and modifying intents.
  */
-@ModuleEntry
-public class IntentMasterModule {
+@XposedPlugin(
+    id = "com.wobbz.IntentMaster",
+    name = "Intent Master",
+    description = "Intercepts, modifies, redirects, and logs intents between applications",
+    version = "1.0.0",
+    author = "wobbz"
+)
+public class IntentMasterModule implements IModulePlugin {
     private static final String TAG = "IntentMasterModule";
     private static final int MAX_LOGS = 100;
     
-    private final SettingsHelper settings;
+    // Mock of SettingsHelper for testing
+    private static class MockSettingsHelper {
+        private final Map<String, Object> settings = new HashMap<>();
+        private final List<BiConsumer<String, Object>> listeners = new ArrayList<>();
+        
+        public boolean getBoolean(String key, boolean defaultValue) {
+            return settings.containsKey(key) ? (Boolean)settings.get(key) : defaultValue;
+        }
+        
+        public String getString(String key, String defaultValue) {
+            return settings.containsKey(key) ? (String)settings.get(key) : defaultValue;
+        }
+        
+        public void putString(String key, String value) {
+            settings.put(key, value);
+            notifyListeners(key, value);
+        }
+        
+        public void registerChangeListener(BiConsumer<String, Object> listener) {
+            listeners.add(listener);
+        }
+        
+        private void notifyListeners(String key, Object value) {
+            for (BiConsumer<String, Object> listener : listeners) {
+                listener.accept(key, value);
+            }
+        }
+        
+        public static MockSettingsHelper getInstance(String tag) {
+            return new MockSettingsHelper();
+        }
+    }
+    
+    private MockSettingsHelper settings;
     private final List<IntentRule> rules = new ArrayList<>();
     private final List<IntentLog> logs = new CopyOnWriteArrayList<>();
     private boolean interceptionEnabled = true;
     private boolean logAllIntents = true;
     private List<String> targetApps = new ArrayList<>();
+    private XposedInterface xposedInterface;
     
     public IntentMasterModule() {
-        settings = SettingsHelper.getInstance(TAG);
+        // Will be initialized in initialize()
+    }
+    
+    /**
+     * Initialize the module with context.
+     */
+    public void initialize(Context context, XposedInterface xposedInterface) {
+        this.xposedInterface = xposedInterface;
+        this.settings = MockSettingsHelper.getInstance(TAG);
         
         // Register settings change listener
         settings.registerChangeListener(this::onSettingsChanged);
@@ -125,33 +178,6 @@ public class IntentMasterModule {
     }
     
     /**
-     * Entry point for the module.
-     * Sets up hooks for intent-related methods.
-     */
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        String packageName = lpparam.packageName;
-        
-        // Only hook target packages
-        if (!isTargetPackage(packageName)) {
-            return;
-        }
-        
-        LoggingHelper.debug(TAG, "Hooking " + packageName);
-        
-        // Hook Activity.startActivity methods
-        hookStartActivity(lpparam);
-        
-        // Hook Context.startService methods
-        hookStartService(lpparam);
-        
-        // Hook Context.sendBroadcast methods
-        hookSendBroadcast(lpparam);
-        
-        // Hook Context.bindService methods
-        hookBindService(lpparam);
-    }
-    
-    /**
      * Checks if a package is targeted by this module.
      */
     private boolean isTargetPackage(String packageName) {
@@ -168,356 +194,504 @@ public class IntentMasterModule {
         return targetApps.contains(packageName);
     }
     
-    /**
-     * Hooks Activity.startActivity methods.
-     */
-    private void hookStartActivity(XC_LoadPackage.LoadPackageParam lpparam) {
-        // Hook Activity.startActivity(Intent)
-        XposedHelpers.findAndHookMethod(Activity.class, "startActivity", 
-                Intent.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(Param param) {
-                        if (!interceptionEnabled) return;
-                        
-                        Activity activity = (Activity) param.thisObject;
-                        Intent intent = (Intent) param.args[0];
-                        
-                        Intent modifiedIntent = processIntent(intent, activity.getPackageName());
-                        if (modifiedIntent == null) {
-                            // Block the intent
-                            param.setResult(null);
-                        } else if (modifiedIntent != intent) {
-                            // Replace with modified intent
-                            param.args[0] = modifiedIntent;
-                        }
-                    }
-                });
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        String packageName = param.getPackageName();
         
-        // Hook Activity.startActivity(Intent, Bundle)
-        XposedHelpers.findAndHookMethod(Activity.class, "startActivity", 
-                Intent.class, Bundle.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(Param param) {
-                        if (!interceptionEnabled) return;
-                        
-                        Activity activity = (Activity) param.thisObject;
-                        Intent intent = (Intent) param.args[0];
-                        
-                        Intent modifiedIntent = processIntent(intent, activity.getPackageName());
-                        if (modifiedIntent == null) {
-                            // Block the intent
-                            param.setResult(null);
-                        } else if (modifiedIntent != intent) {
-                            // Replace with modified intent
-                            param.args[0] = modifiedIntent;
-                        }
-                    }
-                });
+        // Only hook target packages
+        if (!isTargetPackage(packageName)) {
+            return;
+        }
         
-        // Hook Context.startActivity methods too
+        LoggingHelper.debug(TAG, "Hooking " + packageName);
+        
         try {
-            XposedHelpers.findAndHookMethod(Context.class, "startActivity", 
-                    Intent.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
+            // Hook Activity.startActivity methods
+            hookStartActivity(param.getClassLoader());
             
-            // Newer versions of Android have a version with options bundle
-            XposedHelpers.findAndHookMethod(Context.class, "startActivity", 
-                    Intent.class, Bundle.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.startActivity: " + e.getMessage());
+            // Hook Context.startService methods
+            hookStartService(param.getClassLoader());
+            
+            // Hook Context.sendBroadcast methods
+            hookSendBroadcast(param.getClassLoader());
+            
+            // Hook Context.bindService methods
+            hookBindService(param.getClassLoader());
+        } catch (Exception e) {
+            LoggingHelper.error(TAG, "Error setting up hooks: " + e.getMessage());
         }
     }
     
     /**
-     * Hooks Context.startService and startForegroundService methods.
+     * Hooks Activity.startActivity methods.
      */
-    private void hookStartService(XC_LoadPackage.LoadPackageParam lpparam) {
-        // Hook Context.startService(Intent)
-        try {
-            XposedHelpers.findAndHookMethod(Context.class, "startService", 
-                    Intent.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.startService: " + e.getMessage());
+    private void hookStartActivity(ClassLoader classLoader) throws Exception {
+        // Get the Activity class
+        Class<?> activityClass = classLoader.loadClass("android.app.Activity");
+        
+        // Hook Activity.startActivity(Intent)
+        Method startActivityMethod = activityClass.getDeclaredMethod("startActivity", Intent.class);
+        xposedInterface.hook(startActivityMethod, ActivityStartActivityHook.class);
+        
+        // Hook Activity.startActivity(Intent, Bundle)
+        Method startActivityWithBundleMethod = activityClass.getDeclaredMethod("startActivity", Intent.class, Bundle.class);
+        xposedInterface.hook(startActivityWithBundleMethod, ActivityStartActivityWithBundleHook.class);
+        
+        // Get the Context class
+        Class<?> contextClass = classLoader.loadClass("android.content.Context");
+        
+        // Hook Context.startActivity(Intent)
+        Method contextStartActivityMethod = contextClass.getDeclaredMethod("startActivity", Intent.class);
+        xposedInterface.hook(contextStartActivityMethod, ContextStartActivityHook.class);
+        
+        // Hook Context.startActivity(Intent, Bundle)
+        Method contextStartActivityWithBundleMethod = contextClass.getDeclaredMethod("startActivity", Intent.class, Bundle.class);
+        xposedInterface.hook(contextStartActivityWithBundleMethod, ContextStartActivityWithBundleHook.class);
+    }
+    
+    /**
+     * Hook classes for Activity.startActivity
+     */
+    public static class ActivityStartActivityHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the activity instance
+            Activity activity = (Activity) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, activity.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
         }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class ActivityStartActivityWithBundleHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the activity instance
+            Activity activity = (Activity) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, activity.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class ContextStartActivityHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class ContextStartActivityWithBundleHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    /**
+     * Hooks Context.startService methods.
+     */
+    private void hookStartService(ClassLoader classLoader) throws Exception {
+        // Get the Context class
+        Class<?> contextClass = classLoader.loadClass("android.content.Context");
+        
+        // Hook Context.startService(Intent)
+        Method startServiceMethod = contextClass.getDeclaredMethod("startService", Intent.class);
+        xposedInterface.hook(startServiceMethod, StartServiceHook.class);
         
         // Hook Context.startForegroundService(Intent) for Android O+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                XposedHelpers.findAndHookMethod(Context.class, "startForegroundService", 
-                        Intent.class, new XC_MethodHook() {
-                            @Override
-                            protected void beforeHookedMethod(Param param) {
-                                if (!interceptionEnabled) return;
-                                
-                                Context context = (Context) param.thisObject;
-                                Intent intent = (Intent) param.args[0];
-                                
-                                Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                                if (modifiedIntent == null) {
-                                    // Block the intent
-                                    param.setResult(null);
-                                } else if (modifiedIntent != intent) {
-                                    // Replace with modified intent
-                                    param.args[0] = modifiedIntent;
-                                }
-                            }
-                        });
-            } catch (Error | Exception e) {
-                LoggingHelper.error(TAG, "Failed to hook Context.startForegroundService: " + e.getMessage());
+            Method startForegroundServiceMethod = contextClass.getDeclaredMethod("startForegroundService", Intent.class);
+            xposedInterface.hook(startForegroundServiceMethod, StartForegroundServiceHook.class);
+        }
+    }
+    
+    public static class StartServiceHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
             }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class StartForegroundServiceHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
         }
     }
     
     /**
      * Hooks Context.sendBroadcast methods.
      */
-    private void hookSendBroadcast(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookSendBroadcast(ClassLoader classLoader) throws Exception {
+        // Get the Context class
+        Class<?> contextClass = classLoader.loadClass("android.content.Context");
+        
         // Hook Context.sendBroadcast(Intent)
-        try {
-            XposedHelpers.findAndHookMethod(Context.class, "sendBroadcast", 
-                    Intent.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.sendBroadcast: " + e.getMessage());
-        }
+        Method sendBroadcastMethod = contextClass.getDeclaredMethod("sendBroadcast", Intent.class);
+        xposedInterface.hook(sendBroadcastMethod, SendBroadcastHook.class);
         
         // Hook Context.sendBroadcast(Intent, String)
-        try {
-            XposedHelpers.findAndHookMethod(Context.class, "sendBroadcast", 
-                    Intent.class, String.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.sendBroadcast with permission: " + e.getMessage());
+        Method sendBroadcastWithPermMethod = contextClass.getDeclaredMethod("sendBroadcast", Intent.class, String.class);
+        xposedInterface.hook(sendBroadcastWithPermMethod, SendBroadcastWithPermHook.class);
+        
+        // Hook Context.sendOrderedBroadcast
+        Method sendOrderedBroadcastMethod = contextClass.getDeclaredMethod("sendOrderedBroadcast", 
+                Intent.class, String.class);
+        xposedInterface.hook(sendOrderedBroadcastMethod, SendOrderedBroadcastHook.class);
+    }
+    
+    public static class SendBroadcastHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
         }
         
-        // Hook Context.sendOrderedBroadcast methods
-        try {
-            XposedHelpers.findAndHookMethod(Context.class, "sendOrderedBroadcast", 
-                    Intent.class, String.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(Param param) {
-                            if (!interceptionEnabled) return;
-                            
-                            Context context = (Context) param.thisObject;
-                            Intent intent = (Intent) param.args[0];
-                            
-                            Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                            if (modifiedIntent == null) {
-                                // Block the intent
-                                param.setResult(null);
-                            } else if (modifiedIntent != intent) {
-                                // Replace with modified intent
-                                param.args[0] = modifiedIntent;
-                            }
-                        }
-                    });
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.sendOrderedBroadcast: " + e.getMessage());
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class SendBroadcastWithPermHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    public static class SendOrderedBroadcastHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(null);
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
         }
     }
     
     /**
      * Hooks Context.bindService methods.
      */
-    private void hookBindService(XC_LoadPackage.LoadPackageParam lpparam) {
-        // Hook Context.bindService
-        try {
-            // Different Android versions have different method signatures
-            Method[] methods = Context.class.getDeclaredMethods();
-            for (Method method : methods) {
-                if ("bindService".equals(method.getName())) {
-                    Class<?>[] paramTypes = method.getParameterTypes();
-                    if (paramTypes.length >= 3 && 
-                            Intent.class.isAssignableFrom(paramTypes[0]) &&
-                            ServiceConnection.class.isAssignableFrom(paramTypes[1])) {
-                        
-                        XposedBridge.hookMethod(method, new XC_MethodHook() {
-                            @Override
-                            protected void beforeHookedMethod(Param param) {
-                                if (!interceptionEnabled) return;
-                                
-                                Context context = (Context) param.thisObject;
-                                Intent intent = (Intent) param.args[0];
-                                
-                                Intent modifiedIntent = processIntent(intent, context.getPackageName());
-                                if (modifiedIntent == null) {
-                                    // Block the intent - set result to false for bindService
-                                    param.setResult(false);
-                                } else if (modifiedIntent != intent) {
-                                    // Replace with modified intent
-                                    param.args[0] = modifiedIntent;
-                                }
-                            }
-                        });
-                    }
-                }
+    private void hookBindService(ClassLoader classLoader) throws Exception {
+        // Get the Context class
+        Class<?> contextClass = classLoader.loadClass("android.content.Context");
+        
+        // Hook Context.bindService methods (for different Android versions)
+        for (Method method : contextClass.getDeclaredMethods()) {
+            if (method.getName().equals("bindService") && method.getParameterTypes().length >= 2 
+                    && method.getParameterTypes()[0] == Intent.class
+                    && method.getParameterTypes()[1] == ServiceConnection.class) {
+                xposedInterface.hook(method, BindServiceHook.class);
             }
-        } catch (Error | Exception e) {
-            LoggingHelper.error(TAG, "Failed to hook Context.bindService: " + e.getMessage());
         }
     }
     
+    public static class BindServiceHook implements Hooker {
+        public static void before(BeforeHookCallback callback) {
+            // Get the context instance
+            Context context = (Context) callback.getThisObject();
+            // Get the intent argument
+            Intent intent = (Intent) callback.getArgs()[0];
+            
+            // Process the intent
+            IntentMasterModule module = getInstance();
+            if (module == null) return;
+            
+            Intent modifiedIntent = module.processIntent(intent, context.getPackageName());
+            if (modifiedIntent == null) {
+                // Block the intent
+                callback.returnAndSkip(false); // Return false to indicate binding failed
+            } else if (modifiedIntent != intent) {
+                // Replace with modified intent
+                callback.getArgs()[0] = modifiedIntent;
+            }
+        }
+        
+        public static void after(AfterHookCallback callback) {
+            // No implementation needed for after hook
+        }
+    }
+    
+    // Static instance reference for hooks to access
+    private static IntentMasterModule instance;
+    
+    // Method to get the singleton instance
+    public static IntentMasterModule getInstance() {
+        return instance;
+    }
+    
+    // Store instance on initialization
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam startupParam) {
+        instance = this;
+    }
+    
     /**
-     * Processes an intent according to the defined rules.
+     * Process an intent according to the defined rules.
      * 
-     * @param intent The original intent
-     * @param sourcePackage The package that created the intent
-     * @return The modified intent, or null if the intent should be blocked
+     * @param intent The intent to process
+     * @param sourcePackage The package name of the app sending the intent
+     * @return Modified intent, or null to block the intent
      */
     private Intent processIntent(Intent intent, String sourcePackage) {
-        if (intent == null) {
-            LoggingHelper.warning(TAG, "processIntent called with null intent from " + sourcePackage);
-            return null;
-        }
+        if (intent == null) return intent;
         
-        String action = intent.getAction() != null ? intent.getAction() : "(no action)";
-        String dataString = intent.getDataString() != null ? intent.getDataString() : "(no data)";
-        String component = intent.getComponent() != null ? intent.getComponent().flattenToString() : "(no component)";
-
-        String logMessage = String.format("Processing intent: Action=%s, Data=%s, Component=%s, Source=%s", 
-                                          action, dataString, component, sourcePackage);
-        LoggingHelper.info(TAG, logMessage);
-
-        Intent originalIntent = new Intent(intent); // Clone for logging original state
-        
-        // Log the intent if logging is enabled
+        // Always log if enabled
         if (logAllIntents) {
-            IntentLog log = IntentLog.fromIntent(intent, sourcePackage);
-            logs.add(log);
-            
-            // Trim logs if they exceed the maximum
-            if (logs.size() > MAX_LOGS) {
-                logs.subList(0, logs.size() - MAX_LOGS).clear();
-            }
-            
-            saveLogs();
+            logIntent(intent, sourcePackage, "ALLOWED", null);
         }
         
-        // Skip processing if interception is disabled
+        // If interception is disabled, return the original intent
         if (!interceptionEnabled) {
             return intent;
         }
         
-        // Find the first matching rule
+        String intentAction = intent.getAction() != null ? intent.getAction() : "";
+        String intentType = intent.getType() != null ? intent.getType() : "";
+        ComponentName component = intent.getComponent();
+        String targetPackage = component != null ? component.getPackageName() : "";
+        String targetClass = component != null ? component.getClassName() : "";
+        
+        // Check each rule for a match
         for (IntentRule rule : rules) {
-            if (rule.matches(intent, sourcePackage)) {
-                LoggingHelper.debug(TAG, "Found matching rule: " + rule.getName());
+            boolean actionMatch = rule.getActionPattern().isEmpty() || 
+                    intentAction.matches(rule.getActionPattern());
+            boolean typeMatch = rule.getTypePattern().isEmpty() || 
+                    intentType.matches(rule.getTypePattern());
+            boolean sourceMatch = rule.getSourcePackagePattern().isEmpty() || 
+                    sourcePackage.matches(rule.getSourcePackagePattern());
+            boolean targetPackageMatch = rule.getTargetPackagePattern().isEmpty() || 
+                    targetPackage.matches(rule.getTargetPackagePattern());
+            boolean targetClassMatch = rule.getTargetClassPattern().isEmpty() || 
+                    targetClass.matches(rule.getTargetClassPattern());
+            
+            // All patterns must match for the rule to apply
+            if (actionMatch && typeMatch && sourceMatch && targetPackageMatch && targetClassMatch) {
+                LoggingHelper.debug(TAG, "Rule matched: " + rule.getName() + " for intent: " + intentAction);
                 
-                // Update the log with the applied rule info
-                if (logAllIntents && !logs.isEmpty()) {
-                    IntentLog latestLog = logs.get(logs.size() - 1);
-                    latestLog.setAppliedRule(rule);
-                    saveLogs();
+                // Apply the rule
+                switch (rule.getAction()) {
+                    case "BLOCK":
+                        logIntent(intent, sourcePackage, "BLOCKED", rule.getName());
+                        return null;
+                    case "MODIFY":
+                        Intent modifiedIntent = new Intent(intent);
+                        
+                        // Modify action if specified
+                        if (!rule.getNewAction().isEmpty()) {
+                            modifiedIntent.setAction(rule.getNewAction());
+                        }
+                        
+                        // Modify type if specified
+                        if (!rule.getNewType().isEmpty()) {
+                            modifiedIntent.setType(rule.getNewType());
+                        }
+                        
+                        // Modify component if specified
+                        if (!rule.getNewTargetPackage().isEmpty() || !rule.getNewTargetClass().isEmpty()) {
+                            String newPackage = !rule.getNewTargetPackage().isEmpty() ? 
+                                    rule.getNewTargetPackage() : targetPackage;
+                            String newClass = !rule.getNewTargetClass().isEmpty() ? 
+                                    rule.getNewTargetClass() : targetClass;
+                            
+                            if (!newPackage.isEmpty() && !newClass.isEmpty()) {
+                                modifiedIntent.setComponent(new ComponentName(newPackage, newClass));
+                            }
+                        }
+                        
+                        logIntent(modifiedIntent, sourcePackage, "MODIFIED", rule.getName());
+                        return modifiedIntent;
+                    case "LOG":
+                        logIntent(intent, sourcePackage, "LOGGED", rule.getName());
+                        break;
+                    default:
+                        // No action or ALLOW
+                        break;
                 }
                 
-                // Apply the rule's action
-                return rule.applyModification(intent);
+                // If the rule matched but we didn't return, continue to the next rule
             }
         }
         
-        // No matching rule found, return the original intent
+        // Default: pass the intent through unchanged
         return intent;
     }
     
+    /**
+     * Logs an intent to the module's log storage.
+     */
     private void logIntent(Intent intent, String sourcePackage, String status, String ruleMatched) {
-        if (!logAllIntents && !"Blocked".equals(status) && !"Modified".equals(status) && !"Redirected".equals(status) && !"Logged (Rule)".equals(status)) {
-            return; // Don't log if logAllIntents is false and it wasn't a rule-triggered event
+        try {
+            IntentLog logEntry = new IntentLog(intent, sourcePackage, status, ruleMatched);
+            logs.add(logEntry);
+            
+            // Trim logs if we've exceeded the maximum
+            if (logs.size() > MAX_LOGS * 1.5) {
+                logs.subList(0, logs.size() - MAX_LOGS).clear();
+            }
+            
+            // Save logs to settings
+            saveLogs();
+            
+            LoggingHelper.debug(TAG, "Logged intent: " + logEntry.toString());
+        } catch (Exception e) {
+            LoggingHelper.error(TAG, "Failed to log intent: " + e.getMessage());
         }
-        if (intent == null) return;
-
-        LoggingHelper.debug(TAG, String.format("Logging intent: Action=%s, Status=%s, Rule=%s", 
-                                         intent.getAction(), status, ruleMatched != null ? ruleMatched : "N/A"));
-
-        IntentLog logEntry = new IntentLog(intent, sourcePackage, status, ruleMatched);
-        logs.add(logEntry);
-        
-        // Trim logs if they exceed the maximum
-        if (logs.size() > MAX_LOGS) {
-            logs.subList(0, logs.size() - MAX_LOGS).clear();
-        }
-        
-        saveLogs();
     }
 } 

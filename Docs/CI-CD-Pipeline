@@ -1,4 +1,3 @@
-````markdown
 # 📦 CI/CD Pipeline Documentation
 
 This document describes the **Continuous Integration / Continuous Deployment** (CI/CD) workflow for the LSPosed Modular Framework. We use **GitHub Actions** to automate builds, validations, and artifact publishing on every push and pull request.
@@ -8,12 +7,12 @@ This document describes the **Continuous Integration / Continuous Deployment** (
 ## 📈 Pipeline Overview
 
 - **Trigger events**  
-  - `push` on `master`  
-  - `pull_request` targeting `master`
+  - `push` on `main`  
+  - `pull_request` targeting `main`
 
 - **Runner**  
   - Hosted Ubuntu VM (`ubuntu-latest`)  
-  - JDK 8 via Temurin (cached Gradle dependencies)
+  - JDK 17 via Temurin (cached Gradle dependencies)
 
 - **Primary goals**  
   1. **Validate** module descriptors, dependencies, code style  
@@ -28,65 +27,147 @@ This document describes the **Continuous Integration / Continuous Deployment** (
 ## 🛠️ Workflow: `.github/workflows/build.yml`
 
 ```yaml
-name: Build
+name: LSPosed Modular Framework CI/CD
 
 on:
   push:
-    branches: [ master ]
+    branches: [ "main" ]
+    tags:
+      - 'v*'
   pull_request:
-    branches: [ master ]
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
-      # 1. Checkout your code
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    
+    - name: Process Annotations
+      run: ./gradlew processAnnotations
+      
+    - name: Validate Dependencies
+      run: ./gradlew checkDependencies
+      
+    - name: Generate Settings UI
+      run: ./gradlew generateSettingsUI
+      
+    - name: Package Overlays
+      run: ./gradlew packageOverlays
+    
+    - name: Build with Gradle
+      run: ./gradlew build
+    
+    - name: Run Tests
+      run: ./gradlew test
+      
+    - name: Build Release APK
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: ./gradlew assembleRelease
+    
+    - name: Sign Release APK
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: r0adkll/sign-android-release@v1
+      with:
+        releaseDirectory: framework/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+        alias: ${{ secrets.KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+        keyPassword: ${{ secrets.KEY_PASSWORD }}
+      
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: lspf-framework-apk
+        path: framework/build/outputs/apk/release/app-release.apk
+    
+    - name: Generate Documentation
+      run: ./gradlew generateDocs
+      
+    - name: Upload Documentation
+      uses: actions/upload-artifact@v3
+      with:
+        name: documentation
+        path: build/docs
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          framework/build/outputs/apk/release/app-release.apk
+          build/docs/**/*
+        body_path: RELEASE_NOTES.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+  analyze:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Run Code Analysis
+      run: ./gradlew lint detekt
+      
+    - name: Upload Analysis Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: analysis-reports
+        path: |
+          **/build/reports/lint-results*.xml
+          **/build/reports/detekt/*.xml
 
-      # 2. Setup Java 8 with Gradle cache
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          java-version: '8'
-          distribution: 'temurin'
-          cache: gradle
-
-      # 3. Ensure Gradle wrapper is executable
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      # 4. Build & validate
-      - name: Build with Gradle
-        run: ./gradlew build
-
-      - name: Process Annotations
-        run: ./gradlew processAnnotations
-
-      - name: Validate Dependencies
-        run: ./gradlew checkDependencies
-
-      - name: Generate Settings UI
-        run: ./gradlew generateSettingsUI
-
-      - name: Package Overlays
-        run: ./gradlew packageOverlays
-
-      # 5. Run unit & integration tests
-      - name: Run Tests
-        run: ./gradlew test
-
-      # 6. Assemble the signed release APK
-      - name: Build Release
-        run: ./gradlew assembleRelease
-
-      # 7. Upload APK artifact for easy download
-      - name: Upload APK
-        uses: actions/upload-artifact@v3
-        with:
-          name: lspf-framework-apk
-          path: framework/build/outputs/apk/release/app-release.apk
-````
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build, analyze]
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download Release APK
+      uses: actions/download-artifact@v3
+      with:
+        name: lspf-framework-apk
+        
+    - name: Deploy to Firebase App Distribution
+      uses: wzieba/Firebase-Distribution-Github-Action@v1.4.0
+      with:
+        appId: ${{ secrets.FIREBASE_APP_ID }}
+        serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_CREDENTIALS }}
+        groups: testers
+        file: app-release.apk
+        releaseNotes: ${{ github.event.head_commit.message }}
+        
+    - name: Notify Discord
+      if: always()
+      uses: sarisia/actions-status-discord@v1
+      with:
+        webhook: ${{ secrets.DISCORD_WEBHOOK }}
+        status: ${{ job.status }}
+        title: "Release Deployment"
+        description: "New LSPosed Framework version deployed!"
+        color: 0x0000ff
+        username: GitHub Actions
 
 ---
 
@@ -95,12 +176,12 @@ jobs:
 | Step                   | Purpose                                                                                |
 | ---------------------- | -------------------------------------------------------------------------------------- |
 | **actions/checkout**   | Pulls your Git code into the runner.                                                   |
-| **setup-java**         | Installs Temurin JDK 8 and caches Gradle artifacts for fast incremental builds.        |
+| **setup-java**         | Installs Temurin JDK 17 and caches Gradle artifacts for fast incremental builds.        |
 | **chmod gradlew**      | Ensures the Gradle wrapper can execute without error.                                  |
 | **./gradlew build**    | Compiles framework + feature modules; validates descriptor-driven resource generation. |
 | **processAnnotations** | (If enabled) runs annotation processors to generate code (e.g. automated descriptors). |
 | **checkDependencies**  | Runs custom Gradle task to ensure no conflicting or missing module dependencies.       |
-| **generateSettingsUI** | Auto-generates JSON schemas for each feature’s settings screen.                        |
+| **generateSettingsUI** | Auto-generates JSON schemas for each feature's settings screen.                        |
 | **packageOverlays**    | Builds resource-overlay APKs or RROs from module-provided assets.                      |
 | **test**               | Executes all unit tests and integration tests in `src/test` and `src/androidTest`.     |
 | **assembleRelease**    | Produces the signed/aligned release APK ready for distribution.                        |

@@ -4,77 +4,95 @@
 [![Release](https://img.shields.io/github/v/release/wobbz/LSPosedFramework)](https://github.com/wobbz/LSPosedFramework/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> A **modern**, **annotation-driven**, and **Android 15-ready** host framework for all your LSPosed modules—featuring hot-reload development, auto-generated UI, and seamless dependency management.
+> A **modern**, **annotation-driven**, and **Android 14+ ready** host framework for all your LSPosed modules—featuring a vastly improved developer experience with **hot-reloading**, **auto-generated UI**, **simplified Xposed API management via local source**, and **seamless dependency handling**.
 
 ---
 
 ## 📋 Table of Contents
 
-- [✨ Overview](#-overview)  
-- [⭐ Features](#-features)  
-- [🏗️ Architecture](#️-architecture)  
-  - [Project Layout & Build Configuration](#project-layout--build-configuration)  
-  - [Module Metadata & Resources](#module-metadata--resources)  
-  - [Hook Implementation Patterns](#hook-implementation-patterns)  
-- [🔧 Best Practices](#-best-practices)  
-  - [Android 15 Specific Adjustments](#android-15-specific-adjustments)
-  - [Package Naming Conventions](#package-naming-conventions)
-- [🛠️ Development Workflow](#️-development-workflow)  
-- [⚙️ Getting Started](#️-getting-started)  
-  - [Prerequisites](#prerequisites)  
-  - [Build & Installation](#build--installation)  
-- [🤝 Contributing](#-contributing)  
+- [✨ Overview: The Game Changer](#-overview-the-game-changer)
+- [⭐ Core Features](#️-core-features)
+- [🏗️ Architecture](#️-architecture)
+  - [Project Layout & Build Configuration](#project-layout--build-configuration)
+  - [Module Metadata & Resources](#module-metadata--resources)
+  - [Hook Implementation Patterns](#hook-implementation-patterns)
+- [🛠️ Development Workflow](#️-development-workflow)
+- [⚙️ Getting Started](#️-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Build & Installation](#build--installation)
+- [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
 ---
 
-## ✨ Overview
+## ✨ Overview: The Game Changer
 
-The **LSPosed Modular Framework** is a modern, feature-rich Android library that:
+The **LSPosed Modular Framework** revolutionizes how you build LSPosed modules. While LSPosed provides the fundamental hooking capabilities, this framework offers a comprehensive ecosystem around it, addressing common developer pain points and introducing modern development paradigms.
 
-- Uses **Java annotations** (`@XposedPlugin`, `@HotReloadable`) for module metadata and lifecycle
-- Provides **JSON-based configuration** for settings UI and dependencies
-- Supports **hot-reload development** without device reboots
-- Manages **module dependencies** and version constraints
-- Handles **remote updates** via CDN with signature verification
-- Includes powerful core modules:
-  - **IntentMaster**: Advanced intent manipulation and routing
-  - **NetworkGuard**: Comprehensive network traffic control
-  - **PermissionOverride**: Fine-grained permission management
-  - **DeepIntegrator**: Component exposure and integration
-  - **SuperPatcher**: Low-level system modifications
-  - **DebugAll**: Application debugging utilities
+**Why is it a game changer compared to using LSPosed alone?**
 
-Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compatible with any Android 14+ device.
+1.  **Simplified Xposed API Integration**:
+    *   **No More AAR/JitPack Headaches**: Forget manually downloading `xposed-api.aar` files or wrestling with JitPack build issues. The framework integrates `libxposed-api` directly as a **local source dependency** (`libxposed-api` directory).
+    *   **Guaranteed Consistency**: All modules use the exact same API version, built from source within your project.
+    *   **Offline Builds & Easy Debugging**: Access to the API source code improves IDE integration and allows for offline builds.
+
+2.  **Modernized Development Workflow**:
+    *   **Annotation-Driven Development**: Define module properties, scopes, and capabilities directly in your Java/Kotlin code using annotations like `@XposedPlugin`. This reduces boilerplate (e.g., `module.prop`, `assets/xposed_init`) and enables compile-time checks.
+    *   **Hot-Reloading**: Dramatically speed up your development. Make code changes and see them reflected almost instantly on your device **without a reboot**.
+    *   **JSON-Powered Configuration**: Easily define module settings UIs (`settings.json`) that are automatically rendered in the LSPosed Manager and manage inter-module dependencies (`module-info.json`).
+
+3.  **Robust & Maintainable Modules**:
+    *   **Modular Architecture**: Encourages breaking down complex features into smaller, reusable, and independent modules.
+    *   **Standardized API Usage**: Promotes the use of the modern `io.github.libxposed.api` (e.g., `XposedInterface`, `Hooker` classes) for cleaner, more maintainable hook implementations.
+    *   **Centralized Utilities**: Provides common services for logging, configuration management, and potentially more, reducing redundant code in your modules.
+
+This framework is designed for **Android 14+** (specifically tested on OnePlus 12 with OxygenOS 15.0, but compatible with broader Android versions) and aims to make LSPosed module development as efficient and enjoyable as modern Android application development.
 
 ---
 
-## ⭐ Features
+## ⭐ Core Features
 
-- 🎯 **Annotation-Driven Development**: 
-  - `@XposedPlugin` for module metadata
-  - `@HotReloadable` for development workflow
-  - Compile-time validation and type safety
-- 🔄 **Hot-Reload Architecture**: 
-  - Live code updates without reboots
-  - State preservation between reloads
-  - Automatic hook cleanup and reapplication
-- 🎨 **Dynamic Settings UI**: 
-  - JSON schema-based UI generation
-  - Real-time configuration updates
-  - Type-safe settings management
-- 📦 **Dependency System**: 
-  - Version constraints in `module-info.json`
-  - Automatic dependency resolution
-  - Conflict detection and reporting
-- 🔒 **Security Framework**: 
-  - Permission management
-  - Network traffic control
-  - Component access control
-- 📊 **Analytics & Diagnostics**: 
-  - Hook performance metrics
-  - Memory usage tracking
-  - Web-based diagnostics interface
+- 🎯 **Annotation-Driven Development**:
+  - `@XposedPlugin` for module metadata (name, version, scope, author, etc.).
+  - `@HotReloadable` to enable seamless code updates during development.
+  - Eliminates manual descriptor files and brings compile-time validation.
+- 🔄 **Hot-Reload Architecture**:
+  - Instantly push Java/Kotlin code changes to a running app or the system.
+  - `onHotReload()` lifecycle method in modules for state cleanup and re-hooking (a feature provided by this Wobbz LSPosed Framework).
+  - Drastically reduces development and testing time.
+- 🧩 **Integrated `libxposed-api` Source**:
+  - The `libxposed-api` is included as a local project module.
+  - Modules depend on it via `compileOnly project(':libxposed-api:api')`.
+  - Ensures API consistency and simplifies builds.
+- 🎨 **Dynamic Settings UI**:
+  - Define module settings using a simple `settings.json` schema.
+  - The framework (or an associated utility) can generate the necessary UI for LSPosed Manager.
+  - Type-safe access to settings within your module code.
+- 📦 **Dependency System**:
+  - Manage inter-module dependencies using `module-info.json`.
+  - Specify version constraints and load order.
+  - Facilitates building complex systems from smaller, focused modules.
+- 📞 **Direct Inter-Module Communication (Via Framework Services)**:
+  - The framework may provide a service discovery mechanism (e.g., a `FeatureManager`) allowing modules to expose and consume direct APIs from one another, enabling tighter integration beyond typical Xposed hook interactions. (See `DeepIntegrator` and `SuperPatcher` API docs for conceptual examples).
+- 🛡️ **Security & Control Framework**: 
+  - Provides a structure for implementing fine-grained permission checks and policy enforcement. Modules like `NetworkGuard` (network activity control) and `PermissionOverride` (app permission management) demonstrate concrete security and control capabilities.
+- 📊 **Analytics & Diagnostics Support**: 
+  - Infrastructure to aid development and monitoring. Modules like `DebugAll` (dynamically setting application debug flags) showcase diagnostic utilities.
+
+---
+
+## 🚀 Example Modules Showcase
+
+This framework hosts a variety of powerful modules, demonstrating its versatility. Here are the examples currently available in the `modules/` directory:
+
+*   **`NetworkGuard`**: Provides advanced network filtering, monitoring, and protection by hooking core networking APIs and integrating with a central `SecurityManager`.
+*   **`IntentMaster`**: Offers robust interception, modification, redirection, and logging of Android Intents based on a flexible JSON rule system.
+*   **`DeepIntegrator`**: Enables advanced integration with and exposure of internal or normally inaccessible Android application components, working potência_concatenada_recursiva_em_caudally with `IntentMaster`.
+*   **`DebugAll`**: Allows dynamic toggling of debugging flags (e.g., `FLAG_DEBUGGABLE`) for selected applications based on configuration.
+*   **`SuperPatcher`**: An advanced module for applying low-level, generic, and flexible patches, potentially including bytecode manipulation, driven by its own configuration or a (hypothetical) service API.
+*   **`PermissionOverride`**: Enables fine-grained control over Android application permissions, allowing configured overrides of the standard Android permission model.
+
+These modules leverage the framework's features, including the local `libxposed-api`, annotation-driven development, and JSON-based configurations.
 
 ---
 
@@ -82,257 +100,246 @@ Designed for **OnePlus 12 (arm64, Android 15, OxygenOS 15.0)** but fully compati
 
 ### Project Layout & Build Configuration
 
+Reflects the structure outlined in `Docs/Blueprint.md`:
 ```
-LSPosedFramework/
-├── framework/        ← Core library
-│   ├── src/main/java/com/wobbz/framework/
-│   │   ├── annotations/     ← @XposedPlugin, @HotReloadable
-│   │   ├── analytics/      ← Performance tracking
-│   │   ├── security/       ← Security management
-│   │   ├── development/    ← Development tools
-│   │   └── ui/            ← Settings UI generation
-│   └── src/main/resources/
-│       └── META-INF/xposed/
-├── modules/          ← Core modules
-│   ├── IntentMaster/
-│   │   ├── module-info.json    ← Dependencies & metadata
-│   │   ├── settings.json       ← UI configuration
-│   │   └── src/main/.../IntentMasterModule.java
-│   ├── NetworkGuard/
-│   ├── PermissionOverride/
-│   ├── DeepIntegrator/
-│   ├── SuperPatcher/
-│   └── DebugAll/
-└── docs/            ← Documentation
+LSPosed-Modules/
+├── build.gradle              # Root build file (ext properties for SDK versions, Java version)
+├── settings.gradle           # Includes :framework, :libxposed-api:api, and all :modules/*
+├── gradle.properties         # Gradle tuning
+├── libxposed-api/            # LOCAL SOURCE for libxposed API
+│   └── api/                  # The actual API library project
+├── framework/                # Core framework application/library (hosts modules)
+└── modules/                  # Your feature modules
+    ├── YourModule1/
+    │   ├── build.gradle      # Depends on project(':libxposed-api:api'), project(':framework')
+    │   ├── src/main/java/    # Module code using @XposedPlugin
+    │   ├── module-info.json  # Inter-module dependencies
+    │   └── settings.json     # UI schema for this module
+    └── YourModule2/
+        └── ...
 ```
+
+**Key `build.gradle` Snippets:**
+
+*   **Root `build.gradle`**:
+    ```groovy
+    ext {
+        minSdk = 30 // Example: Android 11
+        targetSdk = 34 // Example: Android 14
+        compileSdk = 34
+        javaVersion = JavaVersion.VERSION_17 // CRITICAL: Use Java 17
+    }
+    ```
+*   **Module `build.gradle` (`modules/YourModule/build.gradle`)**:
+    ```groovy
+    dependencies {
+        compileOnly project(':libxposed-api:api') // Use the local API source
+        implementation project(':framework')      // If your module depends on shared framework code
+        // ... other dependencies
+    }
+    ```
 
 ### Module Metadata & Resources
 
-* **Annotation-Based Configuration**:
-
-```java
-@XposedPlugin(
-  id = "com.wobbz.debugall",
-  name = "Debug-All",
-  description = "Force-enable DEBUGGABLE on apps",
-  version = "1.0.0",
-  scope = {"android", "com.android.systemui"},
-  permissions = {"android.permission.READ_LOGS"}
-)
-@HotReloadable
-public class DebugAllModule implements IModulePlugin {
-  // Implementation
-}
-```
-
-* **Dependencies & Metadata** (`module-info.json`):
-
-```json
-{
-  "id": "com.wobbz.debugall",
-  "version": "1.0.0",
-  "minApi": 34,
-  "maxApi": 35,
-  "dependsOn": {
-    "com.wobbz.superpatcher": ">=1.2.0"
-  },
-  "conflicts": [
-    "com.legacy.debugger"
-  ]
-}
-```
-
-* **Settings UI** (`settings.json`):
-
-```json
-{
-  "fields": [
-    {
-      "key": "debugLevel",
-      "type": "choice",
-      "label": "Debug Level",
-      "options": ["info", "debug", "verbose"]
-    },
-    {
-      "key": "targetApps",
-      "type": "app_list",
-      "label": "Target Applications"
+*   **Module Annotation (`@XposedPlugin`)**:
+    (Defined in `Docs/Blueprint.md` or framework source)
+    ```java
+    @XposedPlugin(
+      name = "My Awesome Module",
+      version = "1.0.1",
+      description = "Does awesome things with the new API!",
+      scope = {"com.android.systemui", "com.android.settings"},
+      author = "Your Name"
+    )
+    @HotReloadable // Enable hot-reloading for this module
+    public class MyAwesomeModule implements IXposedModule { // Use IXposedModule or your framework's interface
+        // ... implementation using XposedInterface
     }
-  ]
-}
-```
+    ```
+
+*   **Dependencies & Metadata (`module-info.json`)**:
+    (As per `Docs/Blueprint.md`)
+    ```json
+    {
+      "id": "my-awesome-module",
+      "version": "1.0.1",
+      "dependencies": [
+        { "id": "another-module-id", "version": ">=1.2.0" }
+      ]
+    }
+    ```
+
+*   **Settings UI (`settings.json`)**:
+    (As per `Docs/Blueprint.md`)
+    ```json
+    {
+      "$schema": "https://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "enableAwesomeFeature": {
+          "type": "boolean",
+          "title": "Enable Awesome Feature",
+          "default": true
+        },
+        "awesomeLevel": {
+          "type": "integer",
+          "title": "Level of Awesomeness",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5
+        }
+      }
+    }
+    ```
 
 ### Hook Implementation Patterns
 
-1. **Hot-Reload Support**
-```java
-@HotReloadable
-public class MyModule implements IModulePlugin {
-  @Override
-  public void onHotReload() {
-    // Cleanup and reinitialize hooks
-  }
-}
-```
+Utilize the modern `io.github.libxposed.api`:
 
-2. **Safe Execution & Analytics**
-```java
-try {
-  long trackingId = mAnalyticsManager.trackHookStart(hookId, MODULE_ID, packageName);
-  // hook logic
-  mAnalyticsManager.trackHookEnd(trackingId, true);
-} catch (Throwable t) {
-  LoggingHelper.error(TAG, "Hook failed", t);
-  mAnalyticsManager.trackHookEnd(trackingId, false);
-}
-```
+1.  **Basic Hook with `XposedInterface` and `Hooker`**:
+    ```java
+    // In your module class that implements IXposedModule or similar
+    // (e.g., onPackageLoaded(XposedInterface xposedInterface, String packageName))
 
-3. **Security Integration**
-```java
-if (mSecurityManager != null && 
-    !mSecurityManager.shouldAllowConnection(packageName, host, port, SecurityManager.PROTO_TCP)) {
-  throw new SecurityException("Connection blocked by NetworkGuard");
-}
-```
+    public void hookSomething(XposedInterface xposedInterface, String targetPackageName) {
+        if ("com.example.app".equals(targetPackageName)) {
+            try {
+                // Find the class and method you want to hook
+                Class<?> targetClass = xposedInterface.loadClass("com.example.app.TargetClass");
+                Method targetMethod = XposedHelpers.findMethodExact(targetClass, "targetMethodName", String.class, int.class);
+                
+                // Hook the method
+                xposedInterface.hook(targetMethod, MyTargetMethodHooker.class);
+                xposedInterface.log("Successfully hooked targetMethodName in " + targetPackageName);
 
----
-
-## 🔧 Best Practices
-
-### Development Workflow
-
-1. **Create New Module Structure**
-
-```bash
-modules/NewModule/
-├── src/main/java/com/wobbz/newmodule/
-│   └── NewModule.java           # @XposedPlugin annotated class
-├── module-info.json             # Dependencies & metadata
-└── settings.json               # UI configuration
-```
-
-2. **Add Module Configuration**
-
-```java
-@XposedPlugin(
-  id = "com.wobbz.newmodule",
-  name = "New-Module"
-)
-@HotReloadable
-public class NewModule implements IModulePlugin {
-  // Implementation
-}
-```
-
-3. **Configure Dependencies**
-
-```json
-{
-  "dependsOn": {
-    "com.wobbz.superpatcher": "^2.0.0"
-  }
-}
-```
-
-4. **Define Settings UI**
-
-```json
-{
-  "fields": [
-    {
-      "key": "enabled",
-      "type": "boolean",
-      "label": "Enable Feature"
+            } catch (Throwable t) {
+                xposedInterface.log("Failed to hook targetMethodName in " + targetPackageName);
+                xposedInterface.log(t);
+            }
+        }
     }
-  ]
-}
-```
 
-5. **Development**
-```bash
-# Start hot-reload server
-./gradlew runDevServer
+    // Separate Hooker implementation class
+    public static class MyTargetMethodHooker implements Hooker {
+        @Override
+        public void beforeHook(HookParam param) throws Throwable {
+            XposedInterface xposed = param.getXposed(); // Get XposedInterface from HookParam
+            xposed.log("targetMethodName: beforeHook called!");
+            // param.args contains method arguments
+            // param.setResult(...) to skip original method and set a result
+            // param.setThrowable(...) to throw an exception
+        }
 
-# Watch for changes
-./gradlew watchModules
-```
+        @Override
+        public void afterHook(HookParam param) throws Throwable {
+            XposedInterface xposed = param.getXposed();
+            xposed.log("targetMethodName: afterHook called!");
+            // param.getResult() to get/modify the original method's result
+        }
+    }
+    ```
 
-### Package Naming Conventions
+2.  **Hot-Reload Support**:
+    ```java
+    @HotReloadable
+    public class MyModule implements IXposedModule { // Or your framework's base module interface
+        private List<XposedInterface.MethodUnhooker> unhookers = new ArrayList<>();
+        private XposedInterface xposedInterfaceInstance; // Store if needed
 
-* **Use lowercase everywhere**: 
-  * Framework: `com.wobbz.framework.*`
-  * Modules: `com.wobbz.debugall`, `com.wobbz.networkguard`
-  * Module IDs in annotations: `com.wobbz.debugall`
+        @Override
+        public void onPackageLoaded(XposedInterface xposedInterface, String packageName) {
+            this.xposedInterfaceInstance = xposedInterface;
+            // Initial hooking logic
+            applyHooks(packageName);
+        }
 
-### Android 15 Specific Adjustments
+        private void applyHooks(String packageName) {
+            // Clear previous hooks before applying new ones
+            clearHooks(); 
+            
+            // Example: Hooking a method
+            if ("com.example.app".equals(packageName)) {
+                try {
+                    Class<?> targetClass = xposedInterfaceInstance.loadClass("com.example.app.TargetClass");
+                    Method someMethod = XposedHelpers.findMethodExact(targetClass, "someMethod");
+                    unhookers.add(xposedInterfaceInstance.hook(someMethod, SomeMethodHooker.class));
+                } catch (Throwable t) {
+                    xposedInterfaceInstance.log(t);
+                }
+            }
+        }
+        
+        private void clearHooks() {
+            if (xposedInterfaceInstance != null) {
+                 xposedInterfaceInstance.log("Clearing " + unhookers.size() + " hooks for hot-reload.");
+            }
+            for (XposedInterface.MethodUnhooker unhooker : unhookers) {
+                unhooker.unhook();
+            }
+            unhookers.clear();
+        }
 
-* **Hook Signatures**: Use `framework.art` for Android 15
-* **Hidden-API Enforcement**: Leverage LSPosed's allowlist
-* **SELinux Contexts**: Handle overlay permissions
-* **Vendor Overlays**: Use `overlayfs` when possible
-* **Scope Updates**: Manage ART cache invalidation
+        @Override
+        public void onHotReload(String reloadedPackage) { // Assuming onHotReload provides package context
+            if (xposedInterfaceInstance != null) {
+                xposedInterfaceInstance.log("Hot-reloading for package: " + reloadedPackage + " in MyModule...");
+            }
+            // Re-apply hooks for the specific package or all relevant packages
+            applyHooks(reloadedPackage); 
+            if (xposedInterfaceInstance != null) {
+                xposedInterfaceInstance.log("Hot-reload completed for " + reloadedPackage);
+            }
+        }
+        
+        // Hooker implementation (e.g., SomeMethodHooker)
+        public static class SomeMethodHooker implements Hooker { /* ... */ }
+
+        // Other IXposedModule methods (onInit, onSystemServerLoaded etc.)
+    }
+    ```
+
+### Inter-Module Services & Communication
+
+Beyond typical Xposed interactions (where modules affect system/app behavior that other modules might then observe), this Wobbz LSPosed Framework can facilitate more direct inter-module communication.
+
+- **Service Discovery (e.g., `FeatureManager`)**: If a central `FeatureManager` or a similar service locator pattern is implemented within the framework, modules can register themselves as service providers and other modules can look up and use these services.
+- **Direct API Calls**: This allows one module to call public methods of another module instance directly, enabling a richer, more coupled interaction model when needed. This pattern is hinted at in the API designs of modules like `DeepIntegrator` and `SuperPatcher`.
+- **Dependency Management**: The `module-info.json` file helps manage explicit dependencies, which is crucial if direct API calls are to be made reliably.
+
+This direct service-oriented approach is powerful but should be used judiciously, as it creates tighter coupling than traditional Xposed hook-based interactions.
 
 ---
 
 ## 🛠️ Development Workflow
 
-1. **Create New Module**
+The workflow is significantly streamlined:
 
-```bash
-./gradlew createModule -PmoduleName=NewFeature
-```
+1.  **Create New Module**:
+    *   Set up a new module directory under `modules/`.
+    *   Create your main module class (e.g., `MyModule.java`) annotated with `@XposedPlugin`.
+    *   If needed, add `module-info.json` for dependencies and `settings.json` for UI.
+    *   Ensure your module's `build.gradle` has the correct dependencies:
+        ```gradle
+        dependencies {
+            compileOnly project(':libxposed-api:api')
+            // implementation project(':framework') // If you have a shared framework module
+            // ... other dependencies
+        }
+        ```
 
-2. **Add Annotations**
+2.  **Implement Hooks**:
+    *   Use `XposedInterface` (often obtained from `IXposedModule` lifecycle methods like `onPackageLoaded`) and `Hooker` classes for your hooking logic.
+    *   Implement the `onHotReload()` method in your `@HotReloadable` modules to correctly unhook and re-apply hooks.
 
-```java
-@XposedPlugin(
-  id = "com.wobbz.newfeature",
-  name = "New Feature"
-)
-@HotReloadable
-public class NewFeatureModule implements IModulePlugin {
-  // Implementation
-}
-```
+3.  **Develop with Hot-Reload**:
+    *   Run the development server task (e.g., `./gradlew runDevServer` - specific task name may vary based on your framework setup).
+    *   Make code changes in your IDE.
+    *   The framework should automatically detect changes, recompile the module, and push updates to the device, triggering `onHotReload()`.
+    *   Observe changes and log output in real-time.
 
-3. **Configure Dependencies**
-
-```json
-{
-  "dependsOn": {
-    "com.wobbz.coreutils": "^2.0.0"
-  }
-}
-```
-
-4. **Define Settings UI**
-
-```json
-{
-  "fields": [
-    {
-      "key": "enabled",
-      "type": "boolean",
-      "label": "Enable Feature"
-    }
-  ]
-}
-```
-
-5. **Development**
-```bash
-# Start hot-reload server
-./gradlew runDevServer
-
-# Watch for changes
-./gradlew watchModules
-```
-
-6. **Build & Deploy**
-```bash
-./gradlew assembleRelease
-./gradlew uploadToCDN  # For remote distribution
-```
+4.  **Build & Test**:
+    *   Use standard Gradle tasks like `./gradlew build`, `./gradlew assembleRelease`.
+    *   The framework might provide custom Gradle tasks for processing annotations, generating UIs, or packaging overlays, as detailed in `Docs/Automations.md` and `Docs/Blueprint.md`. (e.g. `./gradlew processAnnotations`)
 
 ---
 
@@ -340,81 +347,52 @@ public class NewFeatureModule implements IModulePlugin {
 
 ### Prerequisites
 
-* Android Studio 2023.1+
-* JDK 17+
-* Android SDK (API 35)
-* LSPosed Framework 1.0+
+*   Android Studio or Cursor (latest stable version recommended).
+*   **JDK 17**: Ensure your project and IDE are configured to use JDK 17.
+*   LSPosed framework installed on your Android 14+ device/emulator.
+*   Basic understanding of Android development and Xposed/LSPosed concepts.
 
 ### Build & Installation
 
-1. Clone the repository
-2. Configure signing keys for remote updates
-3. Run `./gradlew assembleRelease`
-4. Install via LSPosed Manager
-
-#### Handling `libxposed:api` Dependency (Important)
-
-The project relies on the `libxposed:api` (specifically `io.github.libxposed:api`) for Xposed functionalities. As of `0.9.2` (tag `100`), this dependency may fail to resolve correctly from JitPack due to issues with JitPack's build environment (often using an older JDK like Java 8) conflicting with the Android Gradle Plugin version used by `libxposed:api` which requires a newer JDK (e.g., Java 11+).
-
-To resolve this, you'll need to build the `libxposed:api` AAR (Android Archive) file locally and include it directly in the modules that require it (e.g., the `framework` module and potentially other modules like `PermissionOverride`).
-
-**Steps:**
-
-1.  **Clone the `libxposed/api` repository:**
+1.  **Clone the Repository**:
     ```bash
-    git clone https://github.com/libxposed/api.git libxposed-api
-    cd libxposed-api
+    git clone <your-repository-url> LSPosed-Modular-Framework
+    cd LSPosed-Modular-Framework
     ```
-
-2.  **Configure Android SDK for the cloned repository:**
-    Ensure you have an Android SDK installed and its path is known. Create or update a `local.properties` file in the root of the cloned `libxposed-api` directory:
-    ```properties
-    sdk.dir=/path/to/your/android/sdk
-    ```
-    (Replace `/path/to/your/android/sdk` with the actual path, e.g., `~/Library/Android/sdk` on macOS or the path pointed to by `$ANDROID_HOME`).
-
-3.  **Build the AAR:**
-    From the root of the `libxposed-api` directory, run the following command:
+    If `libxposed-api` is a submodule:
     ```bash
-    ./gradlew :api:assembleRelease
+    git submodule update --init --recursive
     ```
-    If you encounter issues with the `:checks:compileKotlin` task (e.g., due to JVM target compatibility), you can try excluding it:
+
+2.  **Open in Android Studio**:
+    Import the project. Android Studio should recognize the Gradle structure, including the `libxposed-api` and other modules.
+
+3.  **Configure Build Variants**:
+    Select the appropriate build variant (e.g., `debug` or `release`) for the main framework application (if applicable) and your modules.
+
+4.  **Build the Project**:
     ```bash
-    ./gradlew :api:assembleRelease -x :checks:compileKotlin
+    ./gradlew assembleDebug # or assembleRelease
     ```
-    This will generate an AAR file located at `api/build/outputs/aar/api-release.aar`.
+    This will build the framework and all included modules. The `libxposed-api` will be built as part of this process.
 
-4.  **Copy the AAR to your project:**
-    *   Create a `libs` directory within each module that needs this dependency (e.g., `/LSPosedFramework/framework/libs/` and `/LSPosedFramework/modules/YourModule/libs/`).
-    *   Copy the `api-release.aar` into these `libs` directories. You might want to rename it for clarity, for example, to `xposed-api.aar`.
+5.  **Install**:
+    *   Install the main framework APK (if your framework is structured as a host app).
+    *   Install your individual module APKs.
+    *   Activate them in the LSPosed Manager and select their target scopes.
+    *   Reboot if prompted by LSPosed Manager (initial activation usually requires this). Subsequent updates via hot-reload should not.
 
-5.  **Update module `build.gradle` files:**
-    In the `build.gradle` file of each module that now includes the local AAR (e.g., `framework/build.gradle`), modify the dependency declaration from:
-    ```gradle
-    // compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
-    ```
-    to:
-    ```gradle
-    compileOnly files('libs/xposed-api.aar') // Or your chosen AAR filename
-    ```
-
-After these steps, clean and rebuild your project. This ensures that the `libxposed:api` is correctly provided, bypassing the JitPack resolution issues for this specific version.
-
-**Note:** This workaround is necessary due to the current build state of `libxposed:api` on JitPack. Ideally, future versions or configurations of `libxposed:api` might resolve this, allowing direct fetching from JitPack. Always check the JitPack build logs for the specific version you intend to use.
+**Important Note on `libxposed:api` Dependency**:
+The previous complex steps for handling `libxposed:api` by manually building and copying AARs are **NO LONGER NECESSARY** with this framework's approach of including `libxposed-api` as a local source dependency. The build system handles it automatically.
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create your feature branch
-3. Add tests and documentation
-4. Submit a pull request
+1.  Fork the repository.
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4.  Push to the branch (`git push origin feature/AmazingFeature`).
+5.  Open a Pull Request.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
----
-
-## 📄 License
-
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+Please refer to `CONTRIBUTING.md`

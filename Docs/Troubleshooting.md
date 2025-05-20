@@ -8,12 +8,13 @@
 
 **Issue: JDK/Gradle Incompatibility**
 
-* **Symptom:** Build errors like `Unsupported major.minor version` or `Could not find com.android.tools.build:gradle`.
+* **Symptom:** Build errors with cryptic Gradle messages, unexpected method signature errors
 * **Solution:**
 
-  * Ensure JDK 8 is on PATH (`java -version` should report 1.8.x).
-  * Align Gradle plugin and Android Gradle Plugin versions in `build.gradle`.
-  * In CI or local, install Android SDK build-tools matching `targetSdkVersion` (34).
+  * Ensure JDK 17 is on PATH (`java -version` should report 17.x).
+  * Verify Android SDK path in `local.properties`.
+  * Check Gradle version compatibility (`./gradlew --version`).
+  * Ensure `build.gradle` files specify compatible compile/target SDK for OxygenOS 15.
 
 **Issue: ANDROID\_HOME or SDK paths misconfigured**
 
@@ -56,9 +57,9 @@
 
 ## 3. Plugin Discovery & Hook Implementation
 
-**Issue: Hook methods not invoked**
+**Issue: Hooks Not Triggering**
 
-* **Symptom:** No `XposedBridge.log` output, no behavior change.
+* **Symptom:** No `XposedInterface.log()` output, no behavior change.
 * **Solution:**
 
   * Wrap hook bodies in `try/catch` and log exceptions.
@@ -224,7 +225,7 @@
 
 **Best Practices:**
 
-* Prefix all log messages with module ID: `XposedBridge.log("[Framework] initZygote invoked");`
+* Prefix all log messages with module ID: `xposedInterface.log("[Framework] initZygote invoked");`
 * Capture exceptions in all `IModulePlugin` methods and log stack traces.
 * Tail logcat with filters: `adb shell logcat | grep -E "\[Framework\]|\[FeatureName\]"`.
 

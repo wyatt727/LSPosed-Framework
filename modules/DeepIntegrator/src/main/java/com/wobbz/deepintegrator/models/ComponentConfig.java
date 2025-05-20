@@ -127,6 +127,20 @@ public class ComponentConfig {
         this.exported = exported;
     }
     
+    /**
+     * Check if we should override the exported flag
+     */
+    public boolean isOverrideExported() {
+        return true; // This implementation always overrides
+    }
+    
+    /**
+     * Check if we should nullify permission requirements
+     */
+    public boolean isNullifyPermission() {
+        return bypassPermissions;
+    }
+    
     public boolean isBypassPermissions() {
         return bypassPermissions;
     }

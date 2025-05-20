@@ -50,6 +50,111 @@ public class IntentRule {
     }
 
     /**
+     * Gets the action pattern to match against intent actions.
+     * 
+     * @return The action pattern, or an empty string if not set.
+     */
+    public String getActionPattern() {
+        return action != null ? action : "";
+    }
+    
+    /**
+     * Gets the type pattern to match against intent types.
+     * 
+     * @return The type pattern, or an empty string if not set.
+     */
+    public String getTypePattern() {
+        return type != null ? type : "";
+    }
+    
+    /**
+     * Gets the source package pattern to match against intent source packages.
+     * 
+     * @return The source package pattern, or an empty string if not set.
+     */
+    public String getSourcePackagePattern() {
+        return packageName != null ? packageName : "";
+    }
+    
+    /**
+     * Gets the target package pattern to match against intent target packages.
+     * 
+     * @return The target package pattern, or an empty string if not set.
+     */
+    public String getTargetPackagePattern() {
+        if (component == null || component.isEmpty()) {
+            return "";
+        }
+        
+        ComponentName cn = ComponentName.unflattenFromString(component);
+        return cn != null ? cn.getPackageName() : "";
+    }
+    
+    /**
+     * Gets the target class pattern to match against intent target classes.
+     * 
+     * @return The target class pattern, or an empty string if not set.
+     */
+    public String getTargetClassPattern() {
+        if (component == null || component.isEmpty()) {
+            return "";
+        }
+        
+        ComponentName cn = ComponentName.unflattenFromString(component);
+        return cn != null ? cn.getClassName() : "";
+    }
+    
+    /**
+     * Gets the new action to set on modified intents.
+     * 
+     * @return The new action, or an empty string if not set.
+     */
+    public String getNewAction() {
+        return modification != null && modification.getNewAction() != null ? 
+                modification.getNewAction() : "";
+    }
+    
+    /**
+     * Gets the new type to set on modified intents.
+     * 
+     * @return The new type, or an empty string if not set.
+     */
+    public String getNewType() {
+        return modification != null && modification.getNewType() != null ? 
+                modification.getNewType() : "";
+    }
+    
+    /**
+     * Gets the new target package to set on modified intents.
+     * 
+     * @return The new target package, or an empty string if not set.
+     */
+    public String getNewTargetPackage() {
+        if (modification == null || modification.getNewComponent() == null || 
+                modification.getNewComponent().isEmpty()) {
+            return "";
+        }
+        
+        ComponentName cn = ComponentName.unflattenFromString(modification.getNewComponent());
+        return cn != null ? cn.getPackageName() : "";
+    }
+    
+    /**
+     * Gets the new target class to set on modified intents.
+     * 
+     * @return The new target class, or an empty string if not set.
+     */
+    public String getNewTargetClass() {
+        if (modification == null || modification.getNewComponent() == null || 
+                modification.getNewComponent().isEmpty()) {
+            return "";
+        }
+        
+        ComponentName cn = ComponentName.unflattenFromString(modification.getNewComponent());
+        return cn != null ? cn.getClassName() : "";
+    }
+
+    /**
      * Checks if this rule matches the given intent.
      */
     public boolean matches(Intent intent, String sourcePackage) {

@@ -176,6 +176,13 @@ public class SettingsHelper {
     }
     
     /**
+     * Alias for setString to match old API naming
+     */
+    public void putString(String key, String value) {
+        setString(key, value);
+    }
+    
+    /**
      * Set an integer setting.
      * 
      * @param key The setting key.

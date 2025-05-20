@@ -2,21 +2,23 @@
 
 ## Overview
 
-The NetworkGuard module primarily operates by hooking system and application network calls and deferring to the `com.wobbz.framework.security.SecurityManager` for decisions. It does not expose a direct programmatic API for other modules to call extensively, but other modules can interact with it implicitly through the `SecurityManager`.
+The NetworkGuard module primarily operates by hooking system and application network calls and deferring to the `com.wobbz.framework.security.SecurityManager` for decisions. It does not expose a direct programmatic API for other Xposed modules to call its core hooking functionalities extensively. Interactions from other modules are typically implicit through the `SecurityManager`.
 
-## Public Methods (Callable by Framework/Reflection)
+The methods and classes described below are part of its public interface mainly for internal use, interaction with a potential settings/management UI, or specific framework services, rather than for direct invocation by other Xposed modules.
 
-While not typically called by other modules directly, these methods are part of its public interface for specific purposes (e.g., management UI, framework interactions):
+## Public Methods (Potentially for UI/Framework Interaction)
+
+These methods might be called via reflection or direct class interaction if an instance of the main module class (`NetworkGuardModule`) is obtained.
 
 -   `void addFirewallRule(String packageName, String destinationPattern, int portStart, int portEnd, int protocol, int ruleType)`
-    *   **Description**: Adds a custom firewall rule directly to the `SecurityManager` if it's initialized. This is likely a helper or intended for a settings UI.
+    *   **Description**: Adds a custom firewall rule directly to the `SecurityManager` if it's initialized.
     *   **Parameters**:
         *   `packageName`: Target package for the rule.
         *   `destinationPattern`: Regex for destination host/IP.
         *   `portStart`: Start of port range.
         *   `portEnd`: End of port range.
-        *   `protocol`: `SecurityManager.PROTO_TCP`, `PROTO_UDP`, etc.
-        *   `ruleType`: `SecurityManager.RULE_TYPE_ALLOW`, `RULE_TYPE_BLOCK`.
+        *   `protocol`: e.g., `SecurityManager.PROTO_TCP`, `SecurityManager.PROTO_UDP`.
+        *   `ruleType`: e.g., `SecurityManager.RULE_TYPE_ALLOW`, `SecurityManager.RULE_TYPE_BLOCK`.
 
 -   `void blockAppNetwork(String packageName)`
     *   **Description**: Instructs `SecurityManager` to restrict all network access for the given package.
@@ -26,16 +28,16 @@ While not typically called by other modules directly, these methods are part of 
 
 -   `AppNetworkStats getAppNetworkStats(String packageName)`
     *   **Description**: Retrieves network statistics for a specific application.
-    *   **Returns**: `AppNetworkStats` object containing counts for connections, HTTP requests, data usage (currently placeholder), etc.
+    *   **Returns**: `AppNetworkStats` object.
 
 -   `Map<String, Set<String>> getAllAppConnections()`
-    *   **Description**: Returns a map of package names to a set of their active/observed connections (host:port strings or URLs).
+    *   **Description**: Returns a map of package names to a set of their active/observed connections.
 
 -   `long getTotalBytesReceived()`
-    *   **Description**: Returns the total bytes received across all monitored apps (currently placeholder, likely relies on `SecurityManager` or future data collection).
+    *   **Description**: Returns the total bytes received across all monitored apps (implementation dependent).
 
 -   `long getTotalBytesSent()`
-    *   **Description**: Returns the total bytes sent (currently placeholder).
+    *   **Description**: Returns the total bytes sent (implementation dependent).
 
 ## `AppNetworkStats` Class
 
@@ -45,8 +47,8 @@ This public static inner class holds network statistics for an application:
 public static class AppNetworkStats {
     public final AtomicLong connectionCount = new AtomicLong(0);
     public final AtomicLong httpRequests = new AtomicLong(0);
-    public final AtomicLong bytesReceived = new AtomicLong(0); // Placeholder
-    public final AtomicLong bytesSent = new AtomicLong(0);     // Placeholder
+    public final AtomicLong bytesReceived = new AtomicLong(0);
+    public final AtomicLong bytesSent = new AtomicLong(0);
     public final AtomicLong allowedConnections = new AtomicLong(0);
     public final AtomicLong blockedConnections = new AtomicLong(0);
     public final AtomicLong lastConnectionTime = new AtomicLong(0);
@@ -58,24 +60,17 @@ public static class AppNetworkStats {
 
 ## Configuration via `SecurityManager`
 
-Modules or a central UI should configure network rules (allow/block lists, app restrictions) via the `SecurityManager` API. NetworkGuard listens to `SecurityManager` events and applies these rules.
+Modules or a central UI should configure network rules (allow/block lists, app restrictions) via the `SecurityManager` API. NetworkGuard listens to `SecurityManager` events and applies these rules based on its hooks, which are implemented using `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` classes.
 
-## Hot Reloading
+## Settings and Module Reloading
 
-Implements `IHotReloadable`. The `onHotReload()` method:
-- Cleans up existing Xposed hooks.
-- Removes itself as a listener from `SecurityManager`.
-- Re-initializes `SecurityManager` and `AnalyticsManager` instances (if context is available).
-- Re-adds itself as a listener to the new `SecurityManager` instance.
-- Re-installs core network hooks.
+The `libxposed-api` does not define a standardized hot-reloading mechanism comparable to older Xposed versions. If NetworkGuard's settings (e.g., rules fetched from `SecurityManager` or other configurations) need to be reloaded dynamically at runtime without a full process restart, this would typically involve:
+-   The module implementing a listener for specific intents (e.g., broadcasts from a settings UI).
+-   Upon receiving such an intent, the module would re-fetch its configuration and update its internal state.
+-   Re-applying Xposed hooks is generally not done lightly and might not be necessary if the hook logic itself is data-driven (i.e., refers to the reloaded configuration).
 
 ## Interactions
 
 -   **Listens to**: `SecurityManager` (for rule changes and firewall events).
--   **Uses**: `AnalyticsManager` (for tracking hook performance), `LoggingHelper`.
-
-## Notes on Context Initialization Issue
-
-(This note is for developers reading the API, assuming the context fix attempt in code was not fully successful via automated edit)
-
-The initialization of `mContext` in `initZygote` (and thus the early initialization of `SecurityManager` and `AnalyticsManager`) is problematic as `StartupParam.modulePath` is a String, not a Context. The module attempts to initialize these managers using `XposedBridge.sInitialApplication` or later in `handleLoadPackage`. If these managers are not available when hooks are made (especially core hooks in `initZygote`), those hooks might not be able to enforce security policies until the managers are fully initialized. This is a known issue requiring careful handling or a framework-level solution for context provisioning in `initZygote`. 
+-   **Uses**: `AnalyticsManager` (if applicable, for tracking hook performance), `LoggingHelper`.
+-   **Core Hooking**: Implemented using `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` within its `IXposedModule` lifecycle methods (`onZygote`, `onSystemServer`, `onPackageLoaded`). 

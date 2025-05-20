@@ -23,6 +23,15 @@ android {
 }
 
 dependencies {
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+
     implementation project(':framework')
-    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
-} 
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+    
+    // Use the local AAR
+    compileOnly files('libs/xposed-api.aar')
+}

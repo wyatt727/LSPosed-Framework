@@ -1,7 +1,7 @@
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.wobbz.deepintegrator'
+    namespace 'com.wobbz.intentmaster'
     compileSdkVersion rootProject.ext.compileSdk
     
     defaultConfig {
@@ -16,14 +16,13 @@ android {
 }
 
 dependencies {
-    repositories {
-        flatDir {
-            dirs 'libs'
-        }
+repositories {
+    flatDir {
+        dirs 'libs'
     }
+}
 
     implementation project(':framework')
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
-    // Use the local AAR directly as specified in README.md
-    compileOnly files('libs/xposed-api.aar')
+    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
 } 

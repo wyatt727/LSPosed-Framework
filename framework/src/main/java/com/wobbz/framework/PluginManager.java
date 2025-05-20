@@ -10,10 +10,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.IXposedHookZygoteInit;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
+import io.github.libxposed.api.XposedModuleInterface;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
+import io.github.libxposed.api.XposedInterface;
 
 /**
  * Core manager class for LSPosed plugins
@@ -29,6 +29,7 @@ public class PluginManager implements FeatureManager.FeatureChangeListener {
     
     private Context mContext;
     private FeatureManager mFeatureManager;
+    private XposedInterface mXposedInterface;
     
     private PluginManager() {
         // Private constructor for singleton
@@ -52,6 +53,23 @@ public class PluginManager implements FeatureManager.FeatureChangeListener {
     }
     
     /**
+     * Set the XposedInterface for logging
+     * 
+     * @param xposedInterface The XposedInterface to use for logging
+     */
+    public void setXposedInterface(XposedInterface xposedInterface) {
+        mXposedInterface = xposedInterface;
+        LoggingHelper.setXposedInterface(xposedInterface);
+        
+        // Initialize any already registered modules with the XposedInterface
+        if (mContext != null) {
+            for (IModulePlugin module : mModules) {
+                initializeModuleWithContext(module);
+            }
+        }
+    }
+    
+    /**
      * Register a module with the plugin manager
      */
     public void registerModule(IModulePlugin module) {
@@ -66,50 +84,108 @@ public class PluginManager implements FeatureManager.FeatureChangeListener {
         if (module instanceof IHotReloadable) {
             mHotReloadableModules.put(moduleClassName, (IHotReloadable) module);
         }
+        
+        // Initialize the module with context and XposedInterface if available
+        initializeModuleWithContext(module);
+    }
+    
+    /**
+     * Initialize a module with context and XposedInterface if available
+     */
+    private void initializeModuleWithContext(IModulePlugin module) {
+        if (mContext == null || mXposedInterface == null) {
+            return;
+        }
+        
+        try {
+            // Try to initialize the module with context and XposedInterface
+            try {
+                module.getClass().getMethod("initialize", Context.class, XposedInterface.class)
+                    .invoke(module, mContext, mXposedInterface);
+                log("Initialized module " + module.getClass().getName() + " with context and XposedInterface");
+            } catch (NoSuchMethodException e) {
+                // Try the generic Object version as fallback
+                try {
+                    module.getClass().getMethod("initialize", Object.class, Object.class)
+                        .invoke(module, mContext, mXposedInterface);
+                    log("Initialized module " + module.getClass().getName() + " with context and XposedInterface (generic method)");
+                } catch (NoSuchMethodException ex) {
+                    // Method doesn't exist, that's fine
+                    log("Module " + module.getClass().getName() + " doesn't have initialize method");
+                }
+            }
+        } catch (Exception e) {
+            log("Error initializing module " + module.getClass().getName() + ": " + e.getMessage());
+        }
     }
     
     /**
      * Handle Zygote initialization
      */
-    public void handleZygoteInit(IXposedHookZygoteInit.StartupParam startupParam) {
-        log("Initializing " + mModules.size() + " modules in Zygote");
-        
+    public void handleZygoteInit(ModuleLoadedParam startupParam) {
+        // Log information about the current process environment
+        String processName = "unknown";
+        boolean isSystemServer = false;
+        try {
+            processName = startupParam.getProcessName();
+            isSystemServer = startupParam.isSystemServer();
+        } catch (Throwable t) {
+            log("Error accessing startupParam details: " + t.getMessage());
+        }
+
+        log("Framework initializing in process: " + processName + 
+            (isSystemServer ? " (System Server)" : " (App Process)"));
+        log("Number of registered modules: " + mModules.size());
+
+        // Call onModuleLoaded for each module
         for (IModulePlugin module : mModules) {
-            // Check if the module is enabled
-            String moduleId = getModuleId(module.getClass().getName());
-            if (isModuleEnabled(moduleId)) {
-                try {
-                    module.initZygote(startupParam);
-                } catch (Throwable t) {
-                    log("Error initializing module " + module.getClass().getName() + ": " + t.getMessage());
-                    XposedBridge.log(t);
-                }
-            } else {
-                log("Module " + moduleId + " is disabled, skipping initialization");
+            try {
+                module.onModuleLoaded(startupParam);
+                log("Module " + module.getClass().getName() + " initialized via onModuleLoaded");
+                
+                // Initialize with context and XposedInterface if needed
+                initializeModuleWithContext(module);
+            } catch (Throwable t) {
+                log("Error in module " + module.getClass().getName() + " onModuleLoaded: " + t.getMessage());
             }
         }
+        
+        log("Initial module registration and framework setup complete for process: " + processName);
     }
     
     /**
      * Handle package loading
      */
-    public void handleLoadPackage(LoadPackageParam lpparam) {
-        log("Package loaded: " + lpparam.packageName);
+    public void handleLoadPackage(PackageLoadedParam lpparam) {
+        // Get package name safely
+        String packageName = getPackageName(lpparam);
+        log("Package loaded: " + packageName);
         
         for (IModulePlugin module : mModules) {
             String moduleId = getModuleId(module.getClass().getName());
             // Check if the module is enabled for this package
-            if (isModuleEnabledForPackage(moduleId, lpparam.packageName)) {
+            if (isModuleEnabledForPackage(moduleId, packageName)) {
                 try {
-                    module.handleLoadPackage(lpparam);
+                    module.onPackageLoaded(lpparam);
                 } catch (Throwable t) {
                     log("Error handling package load in module " + 
                         module.getClass().getName() + ": " + t.getMessage());
-                    XposedBridge.log(t);
+                    log(t.toString());
                 }
             } else {
-                log("Module " + moduleId + " is disabled for package " + lpparam.packageName + ", skipping");
+                log("Module " + moduleId + " is disabled for package " + packageName + ", skipping");
             }
+        }
+    }
+    
+    /**
+     * Extract package name from PackageLoadedParam
+     */
+    private String getPackageName(PackageLoadedParam lpparam) {
+        try {
+            return lpparam.getPackageName();
+        } catch (Exception e) {
+            return "unknown";
         }
     }
     
@@ -126,7 +202,7 @@ public class PluginManager implements FeatureManager.FeatureChangeListener {
                 log("Module " + moduleClassName + " hot-reloaded successfully");
             } catch (Throwable t) {
                 log("Error hot-reloading module " + moduleClassName + ": " + t.getMessage());
-                XposedBridge.log(t);
+                log(t.toString());
             }
         } else {
             log("Module " + moduleClassName + " not found or doesn't support hot-reload");
@@ -193,17 +269,23 @@ public class PluginManager implements FeatureManager.FeatureChangeListener {
                     log("Cleaned up module " + featureId + " after disabling");
                 } catch (Throwable t) {
                     log("Error cleaning up module " + featureId + ": " + t.getMessage());
-                    XposedBridge.log(t);
+                    log(t.toString());
                 }
             }
         }
     }
     
-    private void log(String message) {
-        if (LoggingHelper.class != null) {
-            LoggingHelper.info(TAG, message);
+    /**
+     * Log a message to the Xposed log
+     * 
+     * @param message The message to log
+     */
+    public void log(String message) {
+        if (mXposedInterface != null) {
+            mXposedInterface.log("[" + TAG + "] " + message);
         } else {
-            XposedBridge.log("[" + TAG + "] " + message);
+            // Fall back to LoggingHelper if XposedInterface not available
+            LoggingHelper.info(TAG, message);
         }
     }
 } 

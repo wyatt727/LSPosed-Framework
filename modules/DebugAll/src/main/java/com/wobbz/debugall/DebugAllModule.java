@@ -1,7 +1,6 @@
 package com.wobbz.debugall;
 
 import android.app.Application;
-import android.app.AndroidAppHelper;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 
@@ -13,16 +12,20 @@ import com.wobbz.framework.annotations.XposedPlugin;
 import com.wobbz.framework.development.LoggingHelper;
 import com.wobbz.framework.ui.models.SettingsHelper;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import com.github.libxposed.api.XC_MethodHook;
-import com.github.libxposed.api.XposedBridge;
-import com.github.libxposed.api.XposedHelpers;
-import com.github.libxposed.api.callbacks.XC_LoadPackage.LoadPackageParam;
-import com.github.libxposed.api.callbacks.IXposedHookZygoteInit.StartupParam;
+import io.github.libxposed.api.XposedInterface;
+import io.github.libxposed.api.XposedInterface.Hooker;
+import io.github.libxposed.api.XposedInterface.BeforeHookCallback;
+import io.github.libxposed.api.XposedInterface.AfterHookCallback;
+import io.github.libxposed.api.XposedInterface.MethodUnhooker;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
 /**
  * Module to force debug flags on apps based on user configuration.
@@ -39,7 +42,7 @@ import com.github.libxposed.api.callbacks.IXposedHookZygoteInit.StartupParam;
 @HotReloadable
 public class DebugAllModule implements IModulePlugin, IHotReloadable {
     private static final String TAG = "DebugAll";
-    private Map<String, XC_MethodHook.Unhook> unhooks = new HashMap<>();
+    private Map<String, MethodUnhooker<?>> unhooks = new HashMap<>();
     private Set<String> targetApps = new HashSet<>();
     private boolean verboseLogging = false;
     private String debugLevel = "info";
@@ -47,24 +50,24 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
     private AnalyticsManager mAnalyticsManager;
     private SettingsHelper mSettingsHelper;
     private boolean mManagersInitialized = false;
+    private XposedInterface mXposedInterface;
     
     // Debug flag options
     private static final int FLAG_DEBUGGABLE = ApplicationInfo.FLAG_DEBUGGABLE;
-    private static final int FLAG_ENABLE_PROFILING = ApplicationInfo.FLAG_ENABLE_PROFILING;
-    private static final int FLAG_EXTERNAL_STORAGE_LEGACY = ApplicationInfo.FLAG_EXTERNAL_STORAGE_LEGACY;
+    private static final int FLAG_ENABLE_PROFILING = 0x00000004; // ApplicationInfo.FLAG_ENABLE_PROFILING
+    private static final int FLAG_EXTERNAL_STORAGE_LEGACY = 0x00400000; // ApplicationInfo.FLAG_EXTERNAL_STORAGE_LEGACY
     
     private final Map<String, Integer> debugFlags = new HashMap<>();
     
     @Override
-    public void initZygote(StartupParam startupParam) throws Throwable {
+    public void onModuleLoaded(ModuleLoadedParam startupParam) {
         log("Module initialized in Zygote");
         
-        Application initialApplication = XposedBridge.sInitialApplication;
-        if (initialApplication != null) {
-            this.mModuleContext = initialApplication.getApplicationContext();
-            initializeManagersAndSettings(this.mModuleContext);
+        // Store the initial context if available
+        if (mModuleContext != null) {
+            initializeManagersAndSettings(mModuleContext);
         } else {
-            log("XposedBridge.sInitialApplication is null in initZygote. Managers and settings will be initialized later in handleLoadPackage.");
+            log("Application context is null in initZygote. Managers and settings will be initialized later in handleLoadPackage.");
         }
         
         // Set default debug flags
@@ -92,7 +95,7 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
             }
         } catch (Exception e) {
             log("Failed to initialize AnalyticsManager: " + e.getMessage());
-            XposedBridge.log(e);
+            LoggingHelper.logError(TAG, e);
         }
 
         try {
@@ -101,7 +104,7 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
             loadSettings();
         } catch (Exception e) {
             log("Failed to initialize SettingsHelper: " + e.getMessage());
-            XposedBridge.log(e);
+            LoggingHelper.logError(TAG, e);
         }
 
         if (mSettingsHelper != null) {
@@ -137,30 +140,13 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
     }
     
     @Override
-    public void handleLoadPackage(LoadPackageParam lpparam) throws Throwable {
-        if (!mManagersInitialized) {
-            logVerbose("Attempting to initialize managers/settings in handleLoadPackage for: " + lpparam.packageName);
-            Context contextToUse = null;
-            if (lpparam.appInfo != null) {
-                try {
-                    contextToUse = AndroidAppHelper.currentApplication().createPackageContext(lpparam.packageName, Context.CONTEXT_IGNORE_SECURITY);
-                } catch (Exception e) {
-                     log("Failed to create package context for " + lpparam.packageName + ". Falling back. Error: " + e.getMessage());
-                }
-            }
-            if (contextToUse == null && XposedBridge.sInitialApplication != null) {
-                 logVerbose("Using XposedBridge.sInitialApplication as fallback context for manager/settings initialization.");
-                 contextToUse = XposedBridge.sInitialApplication.getApplicationContext();
-            }
-
-            if (contextToUse != null) {
-                initializeManagersAndSettings(contextToUse);
-            } else {
-                log("Still no context available in handleLoadPackage for " + lpparam.packageName + " to initialize managers/settings. Module may not function as expected.");
-            }
+    public void onPackageLoaded(PackageLoadedParam lpparam) {
+        // Try to get context if needed
+        if (!mManagersInitialized && mModuleContext != null) {
+            initializeManagersAndSettings(mModuleContext);
         }
 
-        String packageName = lpparam.packageName;
+        String packageName = lpparam.getPackageName();
         
         // Skip if not in target apps (when target apps are configured)
         if (!targetApps.isEmpty() && !targetApps.contains(packageName)) {
@@ -178,32 +164,33 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
                     "setDebugFlags", "com.wobbz.debugall", packageName);
             }
             
-            // Hook the method that generates ApplicationInfo
-            XC_MethodHook.Unhook unhook = XposedHelpers.findAndHookMethod(
-                android.content.pm.PackageParser.Package.class.getName(),
-                lpparam.classLoader,
-                "toAppInfoWithoutState",
-                int.class,
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(Param param) throws Throwable {
-                        ApplicationInfo appInfo = (ApplicationInfo) param.getResult();
-                        if (appInfo != null) {
-                            // Apply debug flags based on debug level
-                            if ("info".equals(debugLevel)) {
-                                appInfo.flags |= FLAG_DEBUGGABLE;
-                            } else if ("debug".equals(debugLevel)) {
-                                appInfo.flags |= FLAG_DEBUGGABLE | FLAG_ENABLE_PROFILING;
-                            } else if ("verbose".equals(debugLevel)) {
-                                appInfo.flags |= FLAG_DEBUGGABLE | FLAG_ENABLE_PROFILING | 
-                                                FLAG_EXTERNAL_STORAGE_LEGACY;
-                            }
-                            
-                            log("Set debug flags for: " + appInfo.packageName);
-                        }
-                    }
+            // Get ApplicationInfo class to hook
+            final Class<?> packageClass;
+            try {
+                packageClass = lpparam.getClassLoader().loadClass("android.content.pm.PackageParser$Package");
+            } catch (ClassNotFoundException e) {
+                log("Could not find Package class: " + e.getMessage());
+                return;
+            }
+            
+            // Find the method to hook
+            Method toAppInfoMethod = null;
+            for (Method m : packageClass.getDeclaredMethods()) {
+                if (m.getName().equals("toAppInfoWithoutState") && 
+                    m.getParameterTypes().length == 1 && 
+                    m.getParameterTypes()[0] == int.class) {
+                    toAppInfoMethod = m;
+                    break;
                 }
-            );
+            }
+            
+            if (toAppInfoMethod == null) {
+                log("Could not find toAppInfoWithoutState method");
+                return;
+            }
+            
+            // Hook the method using the libxposed API
+            MethodUnhooker<Method> unhook = mXposedInterface.hook(toAppInfoMethod, DebugFlagHooker.class);
             
             unhooks.put(packageName, unhook);
             log("Successfully hooked ApplicationInfo generation for " + packageName);
@@ -219,52 +206,87 @@ public class DebugAllModule implements IModulePlugin, IHotReloadable {
                 // Track failure
                 mAnalyticsManager.trackHookEnd(0, false);
             }
-            XposedBridge.log(t);
+            LoggingHelper.logError(TAG, t);
+        }
+    }
+    
+    /**
+     * Hooker implementation for modifying ApplicationInfo flags
+     */
+    public static class DebugFlagHooker implements Hooker {
+        
+        /**
+         * Called before the method executes
+         */
+        public static void before(BeforeHookCallback callback) {
+            // No action needed before method execution
+        }
+        
+        /**
+         * Called after the method executes, adds debug flags to the ApplicationInfo
+         */
+        public static void after(AfterHookCallback callback) {
+            // Modify the ApplicationInfo after the method returns
+            Object result = callback.getResult();
+            if (result instanceof ApplicationInfo) {
+                ApplicationInfo appInfo = (ApplicationInfo) result;
+                // Apply debug flags based on debug level
+                String debugLevel = "info"; // Default value, should be set from module
+                
+                if ("info".equals(debugLevel)) {
+                    appInfo.flags |= ApplicationInfo.FLAG_DEBUGGABLE;
+                } else if ("debug".equals(debugLevel)) {
+                    appInfo.flags |= ApplicationInfo.FLAG_DEBUGGABLE | 0x00000004; // FLAG_ENABLE_PROFILING
+                } else if ("verbose".equals(debugLevel)) {
+                    appInfo.flags |= ApplicationInfo.FLAG_DEBUGGABLE | 0x00000004 | 0x00400000; // FLAG_DEBUGGABLE | FLAG_ENABLE_PROFILING | FLAG_EXTERNAL_STORAGE_LEGACY
+                }
+                
+                callback.setResult(appInfo);
+                LoggingHelper.logInfo("DebugAll", "Set debug flags for: " + appInfo.packageName);
+            }
         }
     }
     
     @Override
     public void onHotReload() {
-        log("Hot-reloading module");
+        log("Hot reloading module");
         
-        // Clean up existing hooks
-        for (XC_MethodHook.Unhook unhook : unhooks.values()) {
-            if (unhook != null) {
-                unhook.unhook();
+        // Reload settings
+        loadSettings();
+        
+        // Unhook all existing hooks and clear the map
+        for (MethodUnhooker<?> unhooker : unhooks.values()) {
+            try {
+                unhooker.unhook();
+            } catch (Throwable t) {
+                log("Error unhooking: " + t.getMessage());
             }
         }
         unhooks.clear();
         
-        // Reload settings - ensure managers are re-initialized if necessary first
-        mManagersInitialized = false;
-        if (this.mModuleContext != null) {
-            logVerbose("Re-initializing managers and settings with stored mModuleContext on hot-reload.");
-            initializeManagersAndSettings(this.mModuleContext);
-        } else if (XposedBridge.sInitialApplication != null) {
-            logVerbose("mModuleContext was null during hot-reload, attempting with sInitialApplication for manager/settings re-initialization.");
-            initializeManagersAndSettings(XposedBridge.sInitialApplication.getApplicationContext());
-        } else {
-            log("Cannot re-initialize managers/settings during hot-reload: No valid context stored or available. Settings may be stale.");
-        }
+        log("Module hot-reloaded successfully");
+    }
+    
+    /**
+     * Initialize module with context and XposedInterface
+     */
+    public void initialize(Context context, XposedInterface xposedInterface) {
+        this.mModuleContext = context;
+        this.mXposedInterface = xposedInterface;
         
-        log("All hooks cleaned up, settings reloaded (if possible), ready for new implementation");
+        // Initialize managers
+        initializeManagersAndSettings(context);
+        
+        log("Module initialized with context and XposedInterface");
     }
     
     private void log(String message) {
-        if (LoggingHelper.class != null) {
-            LoggingHelper.info(TAG, message);
-        } else {
-            XposedBridge.log("[" + TAG + "] " + message);
-        }
+        LoggingHelper.logInfo(TAG, message);
     }
     
     private void logVerbose(String message) {
         if (verboseLogging) {
-            if (LoggingHelper.class != null) {
-                LoggingHelper.debug(TAG, message);
-            } else {
-                XposedBridge.log("[" + TAG + " VERBOSE] " + message);
-            }
+            LoggingHelper.logDebug(TAG, message);
         }
     }
 } 

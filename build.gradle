@@ -6,6 +6,7 @@ buildscript {
   }
   dependencies {
     classpath 'com.android.tools.build:gradle:8.2.0'
+    classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.20'
   }
 }
 
@@ -17,6 +18,9 @@ ext {
   targetSdk        = 35
   compileSdk       = 35
   javaVersion      = JavaVersion.VERSION_17
+  
+  // Path to the central xposed-api.aar within the project
+  xposedApiPath    = "${rootDir}/framework/libs/xposed-api.aar"
 }
 
 // Add configuration to suppress SDK warning if needed

@@ -2,23 +2,23 @@
 
 ## Overview
 
-IntentMaster is a powerful module for intercepting, modifying, redirecting, and logging intents between Android applications. It provides a rule-based system to control how intents flow through the system, allowing for deep customization of app-to-app communication.
+IntentMaster is a powerful Xposed module for intercepting, modifying, redirecting, and logging intents between Android applications. It provides a rule-based system to control how intents flow through the system, allowing for deep customization of app-to-app communication. It utilizes `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` classes for its core hooking mechanisms.
 
 ## Key Features
 
-- **Intent Interception**: Hook into key Android intent-related methods to capture intents in flight
-- **Intent Modification**: Change any aspect of an intent (action, data, type, component, extras, etc.)
-- **Intent Redirection**: Redirect intents to different components than originally intended
-- **Intent Blocking**: Prevent certain intents from being delivered
-- **Intent Logging**: Keep a detailed log of all intercepted intents
-- **Rule-Based System**: Define complex matching rules to target specific intents
-- **Test Intent Feature**: Create and send test intents to see how they're handled
+- **Intent Interception**: Hooks key Android intent-related methods (e.g., `Activity.startActivity`, `Context.sendBroadcast`) using the Xposed framework to capture intents in flight.
+- **Intent Modification**: Change any aspect of an intent (action, data, type, component, extras, etc.) based on defined rules.
+- **Intent Redirection**: Redirect intents to different components than originally intended.
+- **Intent Blocking**: Prevent certain intents from being delivered.
+- **Intent Logging**: Keep a detailed log of all intercepted intents and actions taken.
+- **Rule-Based System**: Define complex matching rules in JSON format to target specific intents.
+- **Test Intent Feature**: Create and send test intents to see how they're handled by the rules.
 
 ## Integration with Other Modules
 
-- **DeepIntegrator**: Works with DeepIntegrator to route intents to components that have been exposed
-- **PermissionOverride**: Leverages PermissionOverride when necessary to bypass permission checks
-- **SuperPatcher**: Relies on SuperPatcher for its underlying hook mechanisms
+- **DeepIntegrator**: IntentMaster can work in conjunction with DeepIntegrator to route intents to components that DeepIntegrator might expose.
+- **PermissionOverride**: IntentMaster may rely on PermissionOverride if a redirected or modified intent requires permissions that the original target or context did not have.
+- **Hooking Mechanism**: IntentMaster uses the `libxposed-api` (specifically `io.github.libxposed.api.XposedInterface` and `Hooker` classes) for its underlying hook implementations within the Xposed framework.
 
 ## Settings Schema
 
@@ -194,7 +194,7 @@ This rule blocks analytics broadcast intents:
 
 ## API Usage from Other Modules
 
-IntentMaster does not currently expose a programmatic API to other modules, but this may be added in the future.
+IntentMaster does not currently expose a programmatic API for other Xposed modules to call directly. Its functionality is self-contained and primarily controlled via its `settings.json` configuration file, which defines the intent processing rules.
 
 ## Best Practices
 
@@ -203,4 +203,8 @@ IntentMaster does not currently expose a programmatic API to other modules, but 
 3. **Test thoroughly**: Use the test intent feature to verify your rules
 4. **Limit target apps**: Only target specific apps rather than all apps for performance
 5. **Beware of system intents**: Be very careful when modifying or blocking system intents
-6. **Consider chained effects**: Remember that one modified intent may trigger other intents 
+6. **Consider chained effects**: Remember that one modified intent may trigger other intents
+
+## Development Environment
+
+This module is developed using Java 17. 

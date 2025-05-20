@@ -48,6 +48,66 @@ public class IntentLog {
     }
     
     /**
+     * Constructor that directly logs an intent with status and rule information.
+     * 
+     * @param intent The intent to log
+     * @param sourcePackage The package name of the app sending the intent
+     * @param status The status of the intent (e.g., "ALLOWED", "BLOCKED", "MODIFIED")
+     * @param ruleMatched The name of the rule that matched the intent, or null if none
+     */
+    public IntentLog(Intent intent, String sourcePackage, String status, String ruleMatched) {
+        this();
+        
+        this.sourcePackage = sourcePackage;
+        this.action = intent.getAction();
+        
+        if (intent.getData() != null) {
+            this.data = intent.getData().toString();
+        }
+        
+        this.type = intent.getType();
+        
+        if (intent.getCategories() != null) {
+            this.categories.addAll(intent.getCategories());
+        }
+        
+        if (intent.getComponent() != null) {
+            this.component = intent.getComponent().flattenToString();
+        }
+        
+        this.flags = intent.getFlags();
+        
+        // Extract extras
+        Bundle extras = intent.getExtras();
+        if (extras != null) {
+            for (String key : extras.keySet()) {
+                Object value = extras.get(key);
+                IntentExtraLog extraLog = new IntentExtraLog();
+                extraLog.setKey(key);
+                
+                if (value != null) {
+                    extraLog.setValue(value.toString());
+                    extraLog.setType(value.getClass().getSimpleName());
+                } else {
+                    extraLog.setValue("null");
+                    extraLog.setType("null");
+                }
+                
+                this.extras.add(extraLog);
+            }
+        }
+        
+        // Set rule information
+        if (ruleMatched != null) {
+            this.appliedRuleName = ruleMatched;
+        }
+        
+        this.resultAction = status;
+        this.wasModified = "MODIFIED".equals(status);
+        this.wasBlocked = "BLOCKED".equals(status);
+    }
+    
+    /**
      * Creates an IntentLog from an Intent.
      */
     public static IntentLog fromIntent(Intent intent, String sourcePackage) {

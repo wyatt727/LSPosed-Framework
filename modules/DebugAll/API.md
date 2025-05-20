@@ -2,15 +2,15 @@
 
 ## Overview
 
-The DebugAll module does not expose a direct programmatic API for other modules to call. Its primary function is to modify `ApplicationInfo` flags for targeted applications based on its own configuration.
+The DebugAll module does not expose a direct programmatic API for other Xposed modules to call. Its primary function is to modify `ApplicationInfo` flags for targeted applications based on its own configuration. This is achieved by using `io.github.libxposed.api.XposedInterface` and `io.github.libxposed.api.Hooker` classes to hook relevant system methods during the `onSystemServer` phase of the Xposed module lifecycle.
 
-Interaction with this module is primarily through its settings, which are managed by the framework's `SettingsHelper`.
+Interaction with this module is primarily through its settings, typically managed via a `settings.json` file.
 
-## Configuration (via `settings.json` for `com.wobbz.debugall`)
+## Configuration (via `settings.json`)
 
 -   **`targetApps`**: 
     -   Type: `String[]` (JSON array of strings)
-    -   Description: A list of package names for which debug flags should be modified. If this list is empty or not provided, the module may target all applications (behavior to be confirmed based on implementation details in `handleLoadPackage`).
+    -   Description: A list of package names for which debug flags should be modified. If this list is empty or not provided, the module may target all applications (confirm behavior based on implementation).
     -   Example: `["com.example.someapp", "org.another.debugtarget"]`
 
 -   **`verboseLogging`**:
@@ -22,18 +22,15 @@ Interaction with this module is primarily through its settings, which are manage
     -   Type: `String`
     -   Description: Defines which set of debug flags to apply to target applications. Supported values:
         -   `"info"`: Applies `ApplicationInfo.FLAG_DEBUGGABLE`.
-        -   `"debug"`: Applies `ApplicationInfo.FLAG_DEBUGGABLE | ApplicationInfo.FLAG_ENABLE_PROFILING`.
-        -   `"verbose"`: Applies `ApplicationInfo.FLAG_DEBUGGABLE | ApplicationInfo.FLAG_ENABLE_PROFILING | ApplicationInfo.FLAG_EXTERNAL_STORAGE_LEGACY`.
+        -   `"debug"`: Applies `ApplicationInfo.FLAG_DEBUGGABLE | ApplicationInfo.FLAG_ALLOW_PROFILE` (or equivalent modern profiling flag).
+        -   `"verbose"`: Applies `ApplicationInfo.FLAG_DEBUGGABLE | ApplicationInfo.FLAG_ALLOW_PROFILE | ApplicationInfo.FLAG_EXTERNAL_STORAGE_LEGACY` (Note: `FLAG_EXTERNAL_STORAGE_LEGACY` may be deprecated or ineffective on modern Android versions).
     -   Default: `"info"`
 
-## Internal Workings (for informational purposes)
+## Internal Hooking (Informational)
 
--   **Hooks**: `android.content.pm.PackageParser.Package.toAppInfoWithoutState(int)`.
--   **Context Initialization**: Similar to `NetworkGuardModule`, `DebugAllModule` attempts to initialize its context in `initZygote` using `XposedHelpers.getObjectField(startupParam, "modulePath")` which is problematic as `modulePath` is a String. This may lead to `AnalyticsManager` and `SettingsHelper` not being initialized correctly until/unless a valid context is obtained later (e.g., in `handleLoadPackage` or if `XposedBridge.sInitialApplication` is available).
--   **Debug Flags Map**: The `debugFlags` map (`Map<String, Integer>`) is initialized with flag names and values but is not directly used in the current logic for applying flags in `handleLoadPackage`. Instead, flags are applied based on a string comparison of `debugLevel`. This could be a point for future refinement to make flag application more dynamic based on settings.
+-   The module typically hooks methods involved in `ApplicationInfo` generation within the system server (process `android`). An example target is `toAppInfoWithoutState` in classes like `android.content.pm.PackageParser.Package` or its modern equivalents (e.g., `android.content.pm.parsing.pkg.PackageImpl`).
+-   The hook, implemented as an `io.github.libxposed.api.Hooker`, modifies the `ApplicationInfo.flags` field for targeted packages before the `ApplicationInfo` object is finalized and used by the system.
 
-## Hot Reloading
+## Development Environment
 
-Implements `IHotReloadable`. The `onHotReload()` method:
-- Cleans up existing Xposed hooks.
-- Reloads settings via `loadSettings()`. 
+This module is developed using Java 17. 

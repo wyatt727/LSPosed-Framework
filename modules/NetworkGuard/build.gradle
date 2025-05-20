@@ -7,18 +7,39 @@ android {
     defaultConfig {
         minSdkVersion rootProject.ext.minSdk
         targetSdkVersion rootProject.ext.targetSdk
+        // versionCode 1 // Not typically needed for library modules unless publishing AARs independently
+        // versionName "1.0" // Same as above
     }
     
     compileOptions {
         sourceCompatibility rootProject.ext.javaVersion
         targetCompatibility rootProject.ext.javaVersion
     }
+    
+    // If you have resources specific to this module (e.g. strings, layouts for a settings screen)
+    // sourceSets {
+    //     main {
+    //         manifest.srcFile 'src/main/AndroidManifest.xml' // If it has one
+    //         java.srcDirs = ['src/main/java']
+    //         res.srcDirs = ['src/main/res']
+    //     }
+    // }
 }
 
 dependencies {
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+    // Framework dependency
     implementation project(':framework')
-    // compileOnly fileTree(dir: 'libs', include: ['*.jar']) // No libs dir for now
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+    
+    // Use the local AAR
+    compileOnly files('libs/xposed-api.aar')
 
-    // Add Xposed API dependency
-    compileOnly "io.github.libxposed:api:${rootProject.ext.xposedApiVersion}"
+    // Add any other specific dependencies for NetworkGuard here
+    // For example, if it directly uses GSON or other utility libraries not provided by the framework:
+    // implementation 'com.google.code.gson:gson:2.10.1'
 } 
